@@ -1,0 +1,16 @@
+{
+  "name": "Briefly — private document summarizer",
+  "short_name": "Briefly",
+  "description": "Compare, combine, and summarize documents using your chosen AI provider.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f5ef",
+  "theme_color": "#183a36",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}

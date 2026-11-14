@@ -28,3 +28,7 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## App architecture
+- Keep document content, session history, and user-supplied provider keys on the device; use direct, provider-selected browser requests so no shared AI credential or hosted document storage is needed.
+- Keep document extraction, provider calls, summary logic, and local exports in browser-safe focused modules; load PDF and presentation libraries only on demand to protect server rendering.
