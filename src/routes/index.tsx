@@ -9,9 +9,8 @@ import {
   ChevronDown,
   FileText,
   Image,
+  Info,
   LoaderCircle,
-  LockKeyhole,
-  MessageSquareText,
   Plus,
   Settings2,
   ShieldAlert,
@@ -24,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   countWords,
   deduplicateLines,
@@ -495,47 +495,32 @@ function Home() {
   const progressPercent = inputWords ? Math.min(100, Math.round((measuredOutputWords / Math.max(plannedTarget, 1)) * 100)) : 0;
 
   return (
+    <TooltipProvider>
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto min-h-screen max-w-6xl px-4 pb-28 sm:px-6 lg:px-8">
         <header className="flex h-[4.25rem] items-center justify-between border-b border-border">
           <a className="flex items-center gap-2.5" href="/" aria-label="Briefly home">
             <span className="grid size-8 place-items-center rounded-sm bg-primary text-primary-foreground"><BookOpenText className="size-[18px]" /></span>
             <span className="font-serif text-[21px] font-semibold">briefly<span className="text-accent">.</span></span>
-            <span className="hidden border-l border-border pl-2.5 text-xs text-muted-foreground sm:inline">Private document studio</span>
           </a>
           <div className="flex items-center gap-2">
             {sources.length > 0 && <span className="mr-1 hidden text-xs text-muted-foreground sm:inline">{sources.length} / {MAX_SOURCES} sources</span>}
+            <InfoTip label="Privacy details" text="Your files, source text, and summary stay in this browser. Only included source text is sent directly to the provider you choose when you summarize. Saved keys are stored in this browser profile and may be accessible to someone with access to it; this is not a secure vault. Check your provider’s privacy, retention, pricing, and quota terms. Direct browser calls can be blocked by network or CORS limits. Native Android and iOS packaging and secure key storage are not yet tested." />
             <Button variant="ghost" size="icon" aria-label="Provider settings" title="Provider settings" onClick={() => setShowSettings((value) => !value)}>
               {showSettings ? <X /> : <Settings2 />}
             </Button>
           </div>
         </header>
 
-        <section className="grid gap-8 pb-8 pt-8 md:grid-cols-[minmax(0,1fr)_17.5rem] md:items-end md:gap-14 md:pt-12">
-          <div>
-            <p className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.13em] text-accent"><span className="h-px w-5 bg-accent" />A clearer way through the pile</p>
-            <h1 className="max-w-2xl font-serif text-[2.55rem] leading-[1.07] sm:text-[3.5rem]">Your documents,<br className="hidden sm:block" /> down to the point.</h1>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">Bring a handful of sources together. Compare topics, keep what matters, then make one concise brief.</p>
-          </div>
-          <div className="flex items-start gap-3 border-t border-border pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0">
-            <LockKeyhole className="mt-0.5 size-4 shrink-0 text-accent" />
-            <p className="text-xs leading-5 text-muted-foreground">Files stay in this browser. Only text sent for a summary goes to the AI provider you choose.</p>
-          </div>
-        </section>
-
         {showSettings && <section className="mb-7 border-y border-border bg-secondary/40 py-5" aria-label="AI provider settings">
           <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:gap-12">
             <div className="space-y-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-accent">Your provider</p>
-                <h2 className="mt-1 font-serif text-2xl">Bring your own key</h2>
-              </div>
+              <div className="flex items-center gap-1"><h2 className="font-serif text-2xl">Provider</h2><InfoTip label="Provider information" text={`${providerDetails[activeProvider].keyHelp} ${providerDetails[activeProvider].limitation}`} /></div>
               <div className="grid grid-cols-3 gap-2" role="group" aria-label="Choose AI provider">
                 {(["google", "openai", "openrouter"] as ProviderId[]).map((provider) => <Button key={provider} variant={activeProvider === provider ? "default" : "outline"} size="sm" className="min-w-0 px-2 text-xs" onClick={() => updateProvider(provider)}>{provider === "google" ? "Gemini" : provider === "openai" ? "OpenAI" : "OpenRouter"}</Button>)}
               </div>
-              <p className="text-xs leading-5 text-muted-foreground">{providerDetails[activeProvider].keyHelp}</p>
               <div className="flex gap-2">
-                <Input type="password" autoComplete="off" spellCheck={false} aria-label={`${providerDetails[activeProvider].label} API key`} placeholder={activeKey ? "Saved key · enter new key to replace" : "Paste your provider API key"} value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} />
+                <Input type="password" autoComplete="off" spellCheck={false} aria-label={`${providerDetails[activeProvider].label} API key`} placeholder="API key" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} />
                 <Button size="sm" onClick={saveProviderKey}>Save</Button>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -546,16 +531,11 @@ function Home() {
               {providerCheck && <p className="text-xs leading-5 text-muted-foreground" role="status">{providerCheck}</p>}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium" htmlFor="model-choice">Model</label>
-                {models.length ? <div className="relative"><select id="model-choice" className="h-10 w-full appearance-none rounded-sm border border-input bg-background px-3 pr-9 text-sm" value={activeModel} onChange={(event) => setProviderSettings((current) => ({ ...current, models: { ...current.models, [activeProvider]: event.target.value } }))}><option value="">Choose a model</option>{models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-3 size-4 text-muted-foreground" /></div> : <p className="border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">{activeKey ? "Checking for available text models…" : "Save a key to load this account’s available text models."}</p>}
-                {activeModel && !selectedModelExists && <p className="text-xs text-accent">This saved model is not in the latest list. Check models and choose an available one.</p>}
+                {models.length ? <div className="relative"><select id="model-choice" className="h-10 w-full appearance-none rounded-sm border border-input bg-background px-3 pr-9 text-sm" value={activeModel} onChange={(event) => setProviderSettings((current) => ({ ...current, models: { ...current.models, [activeProvider]: event.target.value } }))}><option value="">Choose a model</option>{models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-3 size-4 text-muted-foreground" /></div> : <p className="border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">{activeKey ? "Loading models…" : "Add API key to load models"}</p>}
+                {activeModel && !selectedModelExists && <p className="text-xs text-accent">Model unavailable. Refresh the model list.</p>}
               </div>
             </div>
-            <div className="space-y-4 border-t border-border pt-5 md:border-l md:border-t-0 md:pl-8 md:pt-0">
-              <div className="flex gap-3"><ShieldAlert className="mt-0.5 size-4 shrink-0 text-accent" /><div><h3 className="text-sm font-semibold">Know where your key and text go</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">A saved key lives in this browser’s local storage. Anyone who can access this browser profile may access it. This is not a device-secure vault.</p></div></div>
-              <div className="flex gap-3"><MessageSquareText className="mt-0.5 size-4 shrink-0 text-accent" /><div><h3 className="text-sm font-semibold">Your provider receives the selected text</h3><p className="mt-1 text-xs leading-5 text-muted-foreground">Briefly sends included source text directly to the selected provider. Check its privacy, retention, pricing, quotas, and model terms first.</p></div></div>
-              <div className="border-l-2 border-accent pl-3 text-xs leading-5 text-muted-foreground">{providerDetails[activeProvider].limitation}</div>
-              <p className="text-[11px] leading-5 text-muted-foreground">Direct browser calls may fail because of network or CORS restrictions. A blocked call stays blocked; no other provider is selected automatically. A future native app should use the phone’s secure key store instead of browser storage.</p>
-            </div>
+            <div className="flex items-start gap-2 border-t border-border pt-5 md:border-l md:border-t-0 md:pl-8 md:pt-0"><ShieldAlert className="mt-0.5 size-4 shrink-0 text-accent" /><InfoTip label="Provider and key details" text="The key is saved only in this browser profile, not in a device-secure vault. Included source text is sent directly to the selected provider. Provider pricing, quotas, model availability, and browser access vary. If a direct browser request is blocked, no other provider is selected automatically." /></div>
           </div>
         </section>}
 
@@ -565,7 +545,7 @@ function Home() {
             <span className="text-border">/</span>
             <span className={phase === "review" ? "text-accent" : "text-muted-foreground"}>02 <span className="ml-1">Review</span></span>
             <span className="text-border">/</span>
-            <span className={phase === "summary" ? "text-accent" : "text-muted-foreground"}>03 <span className="ml-1">Brief</span></span>
+            <span className={phase === "summary" ? "text-accent" : "text-muted-foreground"}>03 <span className="ml-1">Output</span></span>
           </div>
           {sources.length > 0 && <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={clearSession}><Trash2 className="size-3.5" />Clear session</Button>}
         </div>
@@ -576,14 +556,13 @@ function Home() {
         <div className="grid gap-7 md:grid-cols-[minmax(0,1fr)_18rem] md:gap-12">
           <section aria-label="Document sources">
             <div className="mb-4 flex items-end justify-between gap-4">
-              <div><h2 className="font-serif text-2xl sm:text-[28px]">Your source pile</h2><p className="mt-1 text-xs text-muted-foreground">Up to five items · PDFs, plain text, Markdown, pasted text, public articles</p></div>
+              <div className="flex items-center gap-1"><h2 className="font-serif text-2xl sm:text-[28px]">Sources</h2><InfoTip label="Source input details" text="Add up to five PDFs, plain text or Markdown files, pasted text, or public article URLs. Files are read on this device. Files may be up to 24 MB; PDF text extraction reads up to 40 pages or 400,000 characters. Scans and embedded visual content may not be captured." /></div>
               <span className="shrink-0 font-mono text-sm tabular-nums text-muted-foreground">{sources.length.toString().padStart(2, "0")} / 05</span>
             </div>
 
             <div className="divide-y divide-border border-y border-border">
               {sources.length === 0 && !busy && <div className="py-7">
-                <p className="text-sm text-muted-foreground">Nothing on the desk yet.</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">Start with two or more related sources to compare topics before combining them.</p>
+                <p className="text-sm text-muted-foreground">No sources</p>
               </div>}
               {sources.map((source, index) => <SourceRow key={source.id} source={source} index={index} outlier={topicOutliers.includes(source.id)} onRemove={() => { setSources((current) => { const next = current.filter((item) => item.id !== source.id); setTopicOutliers(findTopicOutliers(next)); return next; }); setSummary(""); }} onToggle={(included) => setSourceIncluded(source.id, included)} onFindingToggle={(findingId, included) => setFindingIncluded(source.id, findingId, included)} />)}
               {busy && <div className="flex items-center gap-3 py-4 text-sm text-muted-foreground" role="status"><LoaderCircle className="size-4 animate-spin text-accent" />{busyLabel}<Button variant="ghost" size="sm" className="ml-auto" onClick={cancelActive}>Stop</Button></div>}
@@ -595,72 +574,62 @@ function Home() {
               <Button variant="outline" onClick={() => { setShowPaste((value) => !value); setArticleStage(false); }} disabled={sources.length >= MAX_SOURCES}><FileText />Paste text</Button>
               <Button variant="outline" onClick={() => { setArticleStage((value) => !value); setShowPaste(false); }} disabled={sources.length >= MAX_SOURCES}><ArrowDownToLine />Article URL</Button>
             </div>
-            <p className="mt-2 text-[11px] leading-5 text-muted-foreground">Files are read on this device. Working limit: 24 MB per file; PDF extraction reads up to 40 pages or 400,000 characters. Scans and embedded visual content may need review or external OCR.</p>
-
             {showPaste && <div className="mt-4 border-t border-border pt-4">
-              <div className="mb-2 flex items-center justify-between"><label htmlFor="paste-source" className="text-xs font-medium">Paste a source</label><Button variant="ghost" size="sm" onClick={() => setShowPaste(false)}>Close</Button></div>
-              <Textarea id="paste-source" value={pastedText} onChange={(event) => setPastedText(event.target.value)} placeholder="Paste text or a downloaded article here" className="min-h-36 resize-y text-sm" />
-              <Button className="mt-2" size="sm" disabled={!pastedText.trim() || sources.length >= MAX_SOURCES} onClick={addPastedSource}>Add pasted source</Button>
+              <div className="mb-2 flex items-center justify-between"><label htmlFor="paste-source" className="text-xs font-medium">Source text</label><Button variant="ghost" size="sm" onClick={() => setShowPaste(false)}>Close</Button></div>
+              <Textarea id="paste-source" value={pastedText} onChange={(event) => setPastedText(event.target.value)} placeholder="Paste text" className="min-h-36 resize-y text-sm" />
+              <Button className="mt-2" size="sm" disabled={!pastedText.trim() || sources.length >= MAX_SOURCES} onClick={addPastedSource}>Add source</Button>
             </div>}
 
             {articleStage && <div className="mt-4 border-t border-border pt-4">
-              <label htmlFor="article-address" className="mb-2 block text-xs font-medium">Public article address</label>
-              <div className="flex flex-col gap-2 sm:flex-row"><Input id="article-address" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" value={articleUrl} onChange={(event) => setArticleUrl(event.target.value)} placeholder="https://example.com/article" /><Button onClick={() => void addArticle()} disabled={!articleUrl.trim() || busy || sources.length >= MAX_SOURCES}>Read article</Button></div>
-              <p className="mt-2 text-[11px] leading-5 text-muted-foreground">Many sites block browser reading. If it fails, copy article text above or download a text/PDF copy. This app does not bypass site restrictions.</p>
+              <div className="mb-2 flex items-center gap-1"><label htmlFor="article-address" className="text-xs font-medium">Article URL</label><InfoTip label="Article URL details" text="Many sites block reading from browsers. If reading fails, paste the article text or add a downloaded text or PDF file. Site restrictions are not bypassed." /></div>
+              <div className="flex flex-col gap-2 sm:flex-row"><Input id="article-address" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" value={articleUrl} onChange={(event) => setArticleUrl(event.target.value)} placeholder="https://" /><Button onClick={() => void addArticle()} disabled={!articleUrl.trim() || busy || sources.length >= MAX_SOURCES}>Add URL</Button></div>
             </div>}
 
             {sources.length > 1 && <div className="mt-7 border-t border-border pt-5">
-              <div className="mb-3 flex items-start gap-3"><div className="grid size-8 shrink-0 place-items-center rounded-sm bg-secondary text-accent"><Sparkles className="size-4" /></div><div><h3 className="text-sm font-semibold">Topic check</h3><p className="mt-0.5 text-xs leading-5 text-muted-foreground">A lightweight word-overlap comparison; review the warning before continuing.</p></div></div>
-              {topicOutliers.length ? <div className="border-l-2 border-accent bg-accent/5 p-3 text-xs leading-5"><p className="font-semibold">One or more sources may be off-topic</p><p className="mt-1 text-muted-foreground">{sources.filter((source) => topicOutliers.includes(source.id)).map((source) => source.name).join(", ")} differs from the majority. Exclude it or include it intentionally.</p><div className="mt-2 flex flex-wrap gap-2">{sources.filter((source) => topicOutliers.includes(source.id)).map((source) => <label key={source.id} className="flex items-center gap-2"><Checkbox checked={false} onCheckedChange={(checked) => setSourceIncluded(source.id, checked === true)} />Include {source.name}</label>)}</div></div> : <p className="flex items-center gap-2 text-xs text-muted-foreground"><Check className="size-4 text-accent" />No clear topic outlier detected.</p>}
+              <div className="mb-3 flex items-center gap-2"><div className="grid size-8 shrink-0 place-items-center rounded-sm bg-secondary text-accent"><Sparkles className="size-4" /></div><h3 className="text-sm font-semibold">Topic check</h3><InfoTip label="Topic check details" text="A simple comparison of shared words identifies sources that may not match the others. Review the warning and include or exclude each flagged source." /></div>
+              {topicOutliers.length ? <div className="border-l-2 border-accent bg-accent/5 p-3 text-xs leading-5"><div className="flex items-center gap-1"><p className="font-semibold">Topic warning</p><InfoTip label="Topic warning details" text="These sources differ from the majority based on shared words. Include them intentionally or leave them excluded." /></div><p className="mt-1 text-muted-foreground">{sources.filter((source) => topicOutliers.includes(source.id)).map((source) => source.name).join(", ")}</p><div className="mt-2 flex flex-wrap gap-2">{sources.filter((source) => topicOutliers.includes(source.id)).map((source) => <label key={source.id} className="flex items-center gap-2"><Checkbox checked={false} onCheckedChange={(checked) => setSourceIncluded(source.id, checked === true)} />Include {source.name}</label>)}</div></div> : <p className="flex items-center gap-2 text-xs text-muted-foreground"><Check className="size-4 text-accent" />Topics aligned</p>}
             </div>}
           </section>
 
           <aside className="border-t border-border pt-5 md:border-l md:border-t-0 md:pl-7 md:pt-0" aria-label="Review and summary controls">
-            <div className="flex items-center justify-between gap-3"><h2 className="font-serif text-xl">Review findings</h2><span className="text-xs tabular-nums text-muted-foreground">{allFindings.length} found</span></div>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">Text mentions only. Embedded PDF pictures, tables, charts, and scanned text may not be visible to this reader.</p>
+            <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-1"><h2 className="font-serif text-xl">Review</h2><InfoTip label="Review details" text="Findings are based on text mentions only. Embedded PDF pictures, tables, charts, and scanned text may not be visible to this reader." /></div><span className="text-xs tabular-nums text-muted-foreground">{allFindings.length} found</span></div>
               {allFindings.length > 0 && <div className="flex gap-2 border-y border-border py-2"><Button variant="link" size="sm" className="h-7 px-1 text-xs" onClick={() => setSources((current) => current.map((source) => ({ ...source, findings: source.findings.map((finding) => ({ ...finding, included: true })) })))}>Include all</Button><Button variant="link" size="sm" className="h-7 px-1 text-xs text-muted-foreground" onClick={() => setSources((current) => current.map((source) => ({ ...source, findings: source.findings.map((finding) => ({ ...finding, included: false })) })))}>Exclude all</Button></div>}
             <div className="max-h-72 divide-y divide-border overflow-auto">
               {allFindings.map((finding) => <FindingRow key={`${finding.sourceId}-${finding.id}`} finding={finding} sourceName={finding.sourceName} onToggle={(included) => setFindingIncluded(finding.sourceId, finding.id, included)} />)}
-              {!allFindings.length && <p className="py-4 text-xs leading-5 text-muted-foreground">No text-based image, table, or chart references found. Selectable PDF text is not a full visual analysis.</p>}
+              {!allFindings.length && <div className="flex items-center gap-1 py-4 text-xs text-muted-foreground"><span>No findings</span><InfoTip label="Review limitations" text="Findings are identified from text mentions only. Selectable PDF text is not a full visual analysis; embedded images, tables, charts, or scanned text may be missed." /></div>}
             </div>
 
             <div className="mt-6 border-t border-border pt-4">
-              <div className="flex items-center justify-between gap-3"><h2 className="font-serif text-xl">The 5% brief</h2><span className="rounded-sm bg-secondary px-2 py-1 font-mono text-[10px] text-muted-foreground">APPROX.</span></div>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">Target is about 5% of combined original input, including uploaded summaries.</p>
+              <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-1"><h2 className="font-serif text-xl">Output</h2><InfoTip label="Output target details" text="The target is approximately 5% of the combined original input word count, including uploaded summaries. It is an estimate, not a strict limit." /></div><span className="rounded-sm bg-secondary px-2 py-1 font-mono text-[10px] text-muted-foreground">~5%</span></div>
               <div className="mt-4 grid grid-cols-2 gap-3 border-y border-border py-3">
-                <div><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Input</p><p className="mt-1 font-mono text-xl tabular-nums">{(phase === "summary" ? inputWords : includedSourceWords).toLocaleString()}</p><p className="text-[10px] text-muted-foreground">words included</p></div>
-                <div><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Target</p><p className="mt-1 font-mono text-xl tabular-nums">{targetWordCount(phase === "summary" ? inputWords : includedSourceWords).toLocaleString()}</p><p className="text-[10px] text-muted-foreground">approx. words</p></div>
+                <div><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Input</p><p className="mt-1 font-mono text-xl tabular-nums">{(phase === "summary" ? inputWords : includedSourceWords).toLocaleString()}</p><p className="text-[10px] text-muted-foreground">words</p></div>
+                <div><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Target</p><p className="mt-1 font-mono text-xl tabular-nums">{targetWordCount(phase === "summary" ? inputWords : includedSourceWords).toLocaleString()}</p><p className="text-[10px] text-muted-foreground">words</p></div>
               </div>
               <div className="mt-4 flex items-center justify-between gap-2 text-xs"><span className="text-muted-foreground">AI provider</span><Button variant="link" size="sm" className="h-7 gap-1 px-1" onClick={() => setShowSettings(true)}>{providerDetails[activeProvider].label}<ChevronDown className="size-3.5" /></Button></div>
               {phase === "intake" && sources.length > 0 && <Button variant="outline" className="mt-4 w-full" onClick={startReview}>Review included sources</Button>}
-              {phase === "review" && <Button className="mt-4 w-full" disabled={busy || !selectedSources.some((source) => !topicOutliers.includes(source.id))} onClick={() => void runSummary()}><Sparkles />Create merged brief</Button>}
+              {phase === "review" && <Button className="mt-4 w-full" disabled={busy || !selectedSources.some((source) => !topicOutliers.includes(source.id))} onClick={() => void runSummary()}><Sparkles />Summarize</Button>}
               {phase === "summary" && summary && <div className="mt-4 space-y-2"><Button className="w-full" variant="outline" onClick={downloadSummary}><ArrowDownToLine />Download summary</Button><Button className="w-full" onClick={() => setPptxConfirmation(true)} disabled={busy}><FileText />Make PowerPoint</Button></div>}
-              <p className="mt-2 text-center text-[10px] leading-4 text-muted-foreground">Your text is sent to {providerDetails[activeProvider].label} only when you create the brief.</p>
             </div>
           </aside>
         </div>
 
         {phase === "summary" && summary && <section className="mt-8 border-t border-border pt-6" aria-label="Merged summary">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-accent">Ready to review</p><h2 className="mt-1 font-serif text-3xl">The combined brief</h2></div><div className="flex items-center gap-3 text-xs text-muted-foreground"><span>{inputWords.toLocaleString()} in</span><span className="h-3 w-px bg-border" /><span>{measuredOutputWords.toLocaleString()} out</span><span className="h-3 w-px bg-border" /><span>~{targetWordCount(inputWords).toLocaleString()} target</span></div></div>
-          {Math.abs(measuredOutputWords - targetWordCount(inputWords)) > Math.max(5, targetWordCount(inputWords) * 0.5) && <div className="mb-4 flex items-start gap-2 border-l-2 border-accent bg-secondary/40 p-3 text-xs leading-5"><AlertCircle className="mt-0.5 size-4 shrink-0 text-accent" /><span>The output is meaningfully different from the approximate 5% word target. A readable summary takes priority; review the length before downloading.</span></div>}
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><h2 className="font-serif text-3xl">Output</h2><div className="flex items-center gap-3 text-xs text-muted-foreground"><span>{inputWords.toLocaleString()} in</span><span className="h-3 w-px bg-border" /><span>{measuredOutputWords.toLocaleString()} out</span><span className="h-3 w-px bg-border" /><span>~{targetWordCount(inputWords).toLocaleString()} target</span></div></div>
+          {Math.abs(measuredOutputWords - targetWordCount(inputWords)) > Math.max(5, targetWordCount(inputWords) * 0.5) && <div className="mb-4 flex items-start gap-2 border-l-2 border-accent bg-secondary/40 p-3 text-xs leading-5"><AlertCircle className="mt-0.5 size-4 shrink-0 text-accent" /><span>Warning: output length differs from the ~5% target.</span><InfoTip label="Output length warning details" text="A readable summary takes priority over exact length. Review the output before downloading." /></div>}
           <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words border-y border-border bg-secondary/25 px-4 py-4 font-sans text-sm leading-7">{summary}</pre>
           <div className="mt-4 flex flex-wrap gap-2"><Button variant="outline" onClick={downloadSummary}><ArrowDownToLine />Download Markdown</Button><Button onClick={() => setPptxConfirmation(true)}><FileText />Make PowerPoint</Button></div>
         </section>}
 
-        <footer className="mt-10 border-t border-border py-5 text-[11px] leading-5 text-muted-foreground">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><p className="max-w-2xl">No account. No cloud history. Keys are saved only in this browser. Clear saved keys and source sessions from the controls above. Future Android/iOS packages should store keys in the device secure store.</p><span className="shrink-0">Made for a smaller pile.</span></div>
-          <p className="mt-2">Mobile Safari and native package performance require real-device testing. This browser version has not been packaged as an Android AAB or iOS IPA.</p>
-        </footer>
       </div>
 
       {pptxConfirmation && <div className="fixed inset-0 z-50 grid place-items-end bg-foreground/40 p-0 sm:place-items-center sm:p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setPptxConfirmation(false); }}>
         <section role="dialog" aria-modal="true" aria-labelledby="pptx-title" className="w-full max-w-md border border-border bg-background p-5 shadow-lg sm:rounded-sm sm:p-6">
-          <div className="flex items-start gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-sm bg-secondary text-accent"><FileText className="size-5" /></div><div><h2 id="pptx-title" className="font-serif text-2xl">Create this presentation?</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">A PowerPoint file will be built on this device from the merged brief and downloaded to your files.</p></div></div>
-          <div className="mt-4 border-l-2 border-accent bg-secondary/50 px-3 py-2.5 text-xs leading-5">It will include {summary.split(/\n+/).filter((line) => line.trim()).length + 1} slides with the merged summary and source names. Check the brief before continuing.</div>
+          <div className="flex items-start gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-sm bg-secondary text-accent"><FileText className="size-5" /></div><div className="flex items-center gap-1"><h2 id="pptx-title" className="font-serif text-2xl">Create PowerPoint?</h2><InfoTip label="PowerPoint download details" text={`The presentation will include ${summary.split(/\n+/).filter((line) => line.trim()).length + 1} slides with the current output and source names.`} /></div></div>
           <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button variant="outline" onClick={() => setPptxConfirmation(false)}>Not now</Button><Button onClick={() => void downloadPowerPoint()}><Check />Create and download</Button></div>
         </section>
       </div>}
     </main>
+    </TooltipProvider>
   );
 }
 
@@ -699,6 +668,17 @@ function FindingRow({ finding, sourceName, onToggle }: { finding: Finding; sourc
     <Icon className="mt-0.5 size-3.5 shrink-0 text-accent" />
     <span className="min-w-0"><span className="font-medium capitalize">{finding.kind}</span><span className="block truncate text-[10px] text-muted-foreground">{sourceName}</span><span className="mt-0.5 block text-muted-foreground">{finding.excerpt}</span></span>
   </label>;
+}
+
+function InfoTip({ label, text }: { label: string; text: string }) {
+  return <Tooltip>
+    <TooltipTrigger asChild>
+      <Button variant="ghost" size="icon" className="size-7 shrink-0" aria-label={label}>
+        <Info className="size-3.5" />
+      </Button>
+    </TooltipTrigger>
+    <TooltipContent className="max-w-xs leading-5">{text}</TooltipContent>
+  </Tooltip>;
 }
 
 function defaultModelFor(provider: ProviderId, available: { id: string }[]): string {
