@@ -11,6 +11,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import { ThemeProvider, themeInitScript } from "../lib/theme";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
@@ -80,16 +81,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     // twitter:image here: every page without its own would inherit the root's preview image.
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Briefly — private document summarizer" },
-      { name: "description", content: "Compare and combine documents in your browser with the AI provider you choose." },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Briefly — private document summarizer" },
-      { property: "og:description", content: "A browser-first workspace for combining documents with your own AI provider key." },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      { name: "color-scheme", content: "light dark" },
+      { name: "theme-color", content: "#faf9f4" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "Briefly" },
+      { title: "Briefly — merge & summarize documents" },
+      { name: "description", content: "Merge documents into one short summary, on-device or with your own AI key." },
+      { property: "og:title", content: "Briefly — merge & summarize documents" },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:card", content: "summary" },
     ],
+    scripts: [{ children: themeInitScript }],
     links: [
       {
         rel: "stylesheet",
@@ -107,7 +110,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
@@ -124,8 +127,10 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
+      <ThemeProvider>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
