@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Check, Copy, Download, FileText, LoaderCircle, Presentation, RefreshCw, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { OutlineView } from "@/components/app/outline-view";
 import { SummaryView } from "@/components/app/summary-view";
 import { InfoTip } from "@/components/app/info-tip";
 import { buildPptx, planSlides } from "@/lib/pptx";
@@ -11,14 +12,16 @@ import type { RunResult } from "@/lib/pipeline";
 
 const PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
-export function OutputPanel({ result, onRerun, rerunning }: { result: RunResult; onRerun: () => void; rerunning: boolean }) {
+export function OutputPanel({ result, onRerun, rerunning, status }: { result: RunResult; onRerun: () => void; rerunning: boolean; status?: string }) {
   const { palette } = useTheme();
   const [copied, setCopied] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [building, setBuilding] = useState(false);
   const [file, setFile] = useState<{ blob: Blob; name: string } | null>(null);
   const [error, setError] = useState("");
-  const slides = useMemo(() => planSlides(result.text, result.inputWords, result.outputWords), [result]);
+  const slides = useMemo(() => planSlides(result.text, result.inputWords, result.outputWords, result.outline), [result]);
+  const title = result.text.split("\n").find((l) => /^#\s+/.test(l))?.replace(/^#\s+/, "").trim() ?? "Summary";
+  const multi = (result.outline ?? []).some((sec) => sec.sourceIndex > 0);
   const off = result.targetWords > 0 && Math.abs(result.outputWords - result.targetWords) > Math.max(8, result.targetWords * 0.4);
 
   const copy = async () => {
@@ -60,7 +63,8 @@ export function OutputPanel({ result, onRerun, rerunning }: { result: RunResult;
       {off && <p className="rounded-xl bg-accent/10 px-3.5 py-2.5 text-xs leading-5" role="status">The length differs noticeably from the target. Regenerate, or change the length slider and run again.</p>}
       {result.notes.map((n) => <p key={n} className="rounded-xl bg-secondary/60 px-3.5 py-2.5 text-xs leading-5 text-muted-foreground">{n}</p>)}
 
-      <article className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-7"><SummaryView text={result.text} /></article>
+      {status && <p className="flex items-center gap-2 rounded-xl bg-secondary/60 px-3.5 py-2.5 text-xs" role="status"><LoaderCircle className="size-4 animate-spin text-primary" />{status}</p>}
+      <article className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-7">{result.outline ? <OutlineView outline={result.outline} title={title} multi={multi} /> : <SummaryView text={result.text} />}</article>
 
       {error && <p role="alert" className="rounded-xl bg-destructive/10 px-3.5 py-2.5 text-xs leading-5">{error}</p>}
 

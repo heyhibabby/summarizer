@@ -1,7 +1,6 @@
-import { AlertTriangle, BarChart3, Check, Image as ImageIcon, SlidersHorizontal, Table2 } from "lucide-react";
+import { AlertTriangle, BarChart3, Check, Image as ImageIcon, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Slider } from "@/components/ui/slider";
 import { InfoTip } from "@/components/app/info-tip";
 import type { Finding, SourceRecord, TopicAnalysis } from "@/lib/summarizer";
 
@@ -9,10 +8,6 @@ type Props = {
   sources: SourceRecord[];
   included: (id: string) => boolean;
   topics: TopicAnalysis;
-  ratio: number;
-  inputWords: number;
-  targetWords: number;
-  onRatio: (ratio: number) => void;
   onFinding: (sourceId: string, findingId: string, included: boolean) => void;
   onAllFindings: (included: boolean) => void;
   onToggleSource: (id: string, included: boolean) => void;
@@ -20,25 +15,11 @@ type Props = {
 
 const KindIcon = ({ kind }: { kind: Finding["kind"] }) => (kind === "table" ? <Table2 className="size-4" /> : kind === "chart" ? <BarChart3 className="size-4" /> : <ImageIcon className="size-4" />);
 
-export function ReviewPanel({ sources, included, topics, ratio, inputWords, targetWords, onRatio, onFinding, onAllFindings, onToggleSource }: Props) {
+export function ReviewPanel({ sources, included, topics, onFinding, onAllFindings, onToggleSource }: Props) {
   const flagged = sources.filter((s) => topics.outliers.includes(s.id));
   const findings = sources.filter((s) => included(s.id)).flatMap((s) => s.findings.map((f) => ({ ...f, sourceId: s.id, sourceName: s.name })));
   return (
     <section aria-label="Review" className="space-y-5">
-      <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-        <div className="mb-3 flex items-center gap-1">
-          <SlidersHorizontal className="size-4 text-primary" />
-          <h3 className="text-sm font-semibold">Summary length</h3>
-          <InfoTip label="About summary length"><p>The target is about {Math.round(ratio * 100)}% of the combined words of every included source (uploaded summaries count too). It is approximate: readability comes first.</p></InfoTip>
-          <span className="ml-auto rounded-full bg-secondary px-2.5 py-0.5 font-mono text-xs font-semibold">{Math.round(ratio * 100)}%</span>
-        </div>
-        <Slider min={2} max={20} step={1} value={[Math.round(ratio * 100)]} onValueChange={([v]) => onRatio((v ?? 5) / 100)} aria-label="Summary length percent" />
-        <div className="mt-3 grid grid-cols-2 gap-3 text-center">
-          <div className="rounded-xl bg-secondary/60 py-2.5"><p className="font-mono text-xl font-semibold tabular-nums">{inputWords.toLocaleString()}</p><p className="text-[11px] text-muted-foreground">input words</p></div>
-          <div className="rounded-xl bg-secondary/60 py-2.5"><p className="font-mono text-xl font-semibold tabular-nums">~{targetWords.toLocaleString()}</p><p className="text-[11px] text-muted-foreground">target words</p></div>
-        </div>
-      </div>
-
       {sources.length > 1 && (
         <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
           <div className="mb-2 flex items-center gap-1">

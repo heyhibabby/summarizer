@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from "react";
-import { AlertTriangle, BookOpenText, ChevronDown, ClipboardPaste, FlaskConical, Link2, LoaderCircle, Plus, Upload, X } from "lucide-react";
+import { AlertTriangle, BookOpenText, ChevronDown, ClipboardPaste, FlaskConical, Link2, ListTree, LoaderCircle, Plus, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -24,10 +24,12 @@ type Props = {
   onRemove: (id: string) => void;
   onToggle: (id: string, included: boolean) => void;
   onFinding: (sourceId: string, findingId: string, included: boolean) => void;
+  onChapter: (sourceId: string, chapterId: string, included: boolean) => void;
+  onAllChapters: (sourceId: string, included: boolean) => void;
   onStop: () => void;
 };
 
-export function SourcesPanel({ sources, included, flagged, keywords, busy, busyLabel, onFiles, onPaste, onUrl, onSample, onRemove, onToggle, onFinding, onStop }: Props) {
+export function SourcesPanel({ sources, included, flagged, keywords, busy, busyLabel, onFiles, onPaste, onUrl, onSample, onRemove, onToggle, onFinding, onChapter, onAllChapters, onStop }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<"" | "paste" | "url">("");
   const [pasted, setPasted] = useState("");
@@ -114,15 +116,18 @@ export function SourcesPanel({ sources, included, flagged, keywords, busy, busyL
 
       <ul className="space-y-2.5">
         {sources.map((source, index) => (
-          <SourceCard key={source.id} index={index} source={source} included={included(source.id)} flagged={flagged.has(source.id)} keywords={keywords[source.id] ?? []} onRemove={() => onRemove(source.id)} onToggle={(v) => onToggle(source.id, v)} onFinding={(fid, v) => onFinding(source.id, fid, v)} />
+          <SourceCard key={source.id} index={index} source={source} included={included(source.id)} flagged={flagged.has(source.id)} keywords={keywords[source.id] ?? []} onRemove={() => onRemove(source.id)} onToggle={(v) => onToggle(source.id, v)} onFinding={(fid, v) => onFinding(source.id, fid, v)} onChapter={(cid, v) => onChapter(source.id, cid, v)} onAllChapters={(v) => onAllChapters(source.id, v)} />
         ))}
       </ul>
     </section>
   );
 }
 
-function SourceCard({ source, index, included, flagged, keywords, onRemove, onToggle, onFinding }: { source: SourceRecord; index: number; included: boolean; flagged: boolean; keywords: string[]; onRemove: () => void; onToggle: (included: boolean) => void; onFinding: (findingId: string, included: boolean) => void }) {
+function SourceCard({ source, index, included, flagged, keywords, onRemove, onToggle, onFinding, onChapter, onAllChapters }: { source: SourceRecord; index: number; included: boolean; flagged: boolean; keywords: string[]; onRemove: () => void; onToggle: (included: boolean) => void; onFinding: (findingId: string, included: boolean) => void; onChapter: (chapterId: string, included: boolean) => void; onAllChapters: (included: boolean) => void }) {
   const [open, setOpen] = useState(false);
+  const [chaptersOpen, setChaptersOpen] = useState(false);
+  const chapters = source.chapters ?? [];
+  const usedChapters = chapters.filter((c) => c.included).length;
   return (
     <li className={cn("rounded-2xl border bg-card p-3.5 shadow-sm transition-opacity", flagged && included ? "border-accent/60" : "border-border", !included && "opacity-60")}>
       <div className="flex items-start gap-3">
@@ -142,10 +147,29 @@ function SourceCard({ source, index, included, flagged, keywords, onRemove, onTo
       </div>
       <div className="mt-3 flex items-center justify-between border-t border-border pt-2.5">
         <label className="flex items-center gap-2 text-sm"><Switch checked={included} onCheckedChange={onToggle} aria-label={`Include ${source.name}`} />Include in summary</label>
-        {source.findings.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>Visuals<ChevronDown className={cn("transition-transform", open && "rotate-180")} /></Button>
-        )}
+        <span className="flex">
+          {chapters.length > 0 && <Button variant="ghost" size="sm" onClick={() => setChaptersOpen((v) => !v)} aria-expanded={chaptersOpen}><ListTree />{usedChapters}/{chapters.length} chapters<ChevronDown className={cn("transition-transform", chaptersOpen && "rotate-180")} /></Button>}
+          {source.findings.length > 0 && <Button variant="ghost" size="sm" onClick={() => setOpen((v) => !v)} aria-expanded={open}>Visuals<ChevronDown className={cn("transition-transform", open && "rotate-180")} /></Button>}
+        </span>
       </div>
+      {chaptersOpen && chapters.length > 0 && (
+        <div className="mt-2 border-t border-border pt-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">Untick front matter, index or anything you don’t want summarized.</p>
+            <span className="flex shrink-0 gap-1"><Button variant="outline" size="sm" className="h-8" onClick={() => onAllChapters(true)}>All</Button><Button variant="outline" size="sm" className="h-8" onClick={() => onAllChapters(false)}>None</Button></span>
+          </div>
+          <ul className="max-h-72 divide-y divide-border overflow-auto rounded-lg border border-border">
+            {chapters.map((c) => (
+              <li key={c.id}>
+                <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5 text-sm">
+                  <Checkbox className="mt-0.5" checked={c.included} onCheckedChange={(v) => onChapter(c.id, v === true)} />
+                  <span className="min-w-0 flex-1"><span className="block break-words leading-snug">{c.title}</span><span className="text-[11px] text-muted-foreground">{countWords(c.text).toLocaleString()} words{c.startPage ? ` · p. ${c.startPage}${c.endPage && c.endPage !== c.startPage ? `–${c.endPage}` : ""}` : ""}</span></span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {open && (
         <ul className="mt-2 space-y-2 border-t border-border pt-3">
           {source.findings.map((f) => (

@@ -26,6 +26,7 @@ export function SummaryView({ text }: { text: string }) {
     flush(`l${index}`);
     if (!line) return;
     if (/^#\s+/.test(line)) blocks.push(<h3 key={index} className="mb-3 font-serif text-2xl font-semibold leading-snug">{inline(line.replace(/^#\s+/, ""))}</h3>);
+    else if (/^###\s+/.test(line)) blocks.push(<h5 key={index} className="mb-1 mt-4 text-base font-semibold">{inline(line.replace(/^#+\s+/, ""))}</h5>);
     else if (/^##+\s+/.test(line)) blocks.push(<h4 key={index} className="mb-1 mt-5 text-xs font-bold uppercase tracking-wider text-accent">{inline(line.replace(/^#+\s+/, ""))}</h4>);
     else if (/^\d+\.\s+/.test(line)) blocks.push(<p key={index} className="text-sm text-muted-foreground">{line}</p>);
     else blocks.push(<p key={index} className="my-2">{inline(line)}</p>);
