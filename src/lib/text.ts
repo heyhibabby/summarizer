@@ -85,7 +85,7 @@ export function cleanMarkup(text: string): string {
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\((?:[^)]*)\)/g, "$1")
     .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-    .replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, "")
+    .replace(/^\s*(?:[-*+•▪◦●■]|\d+[.)])\s+/gm, "")
     .replace(/^\s*>\s?/gm, "")
     .replace(/(\*\*|__)(.*?)\1/g, "$2")
     .replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s).,;:!?]|$)/g, "$1$2")
@@ -116,14 +116,56 @@ export function splitSentences(raw: string): SentenceRecord[] {
   return out;
 }
 
+/** Private-use / symbol-font bullet glyphs that PDFs emit instead of a real bullet. */
+const BULLET_GLYPHS = /[ÿ\uFFFD\uF0A7\uF0B7\uF0D8\uF076\uF0FC\u2022\u25AA\u25E6\u25CF\u25A0\u2043]/g;
+
+/** Repair PDF text: stray glyphs become paragraph breaks, soft hyphens vanish, odd spaces are normalised. */
+export function normalizeExtracted(text: string): string {
+  return text
+    .replace(/\u00AD/g, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s*[ÿ\uFFFD\uF0A7\uF0B7\uF0D8\uF076\uF0FC\u25AA\u25E6\u25CF\u25A0\u2043]\s+(?=\S)/g, "\n\n")
+    .replace(/[\uE000-\uF8FF]/g, " ")
+    .replace(BULLET_GLYPHS, " ")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
+const DANGLING = new Set(["gives", "makes", "takes", "shows", "uses", "provides", "allows", "means", "has", "have", "is", "are", "be", "can", "will", "would", "should", "that", "which", "than", "as", "if", "or", "but", "while", "because", "when", "where"]);
+
+/** Sentences that point elsewhere ("see Table 3 on the next page") say nothing on their own. */
+const CROSS_REFERENCE = new RegExp(
+  [
+    "\\b(?:see|refer to|cf\\.?|consult)\\s+(?:also\\s+)?(?:the\\s+)?(?:table|tab\\.|figure|fig\\.|chart|graph|page|pp?\\.|chapter|section|appendix|equation|eq\\.|below|above|next|previous)",
+    "\\b(?:in|on|over)\\s+the\\s+(?:following|next|previous|preceding)\\s+(?:pages?|chapters?|sections?|paragraphs?)",
+    "\\b(?:on|in)\\s+(?:the\\s+)?(?:next|previous|following|preceding|facing|opposite)\\s+page",
+    "\\bas\\s+(?:shown|illustrated|described|discussed|seen|reported|indicated|explained|listed)\\s+(?:in|on|below|above|earlier|previously)\\b",
+    "\\b(?:on|at|in)\\s+pages?\\s+\\d+",
+    "\\bpp?\\.\\s*\\d+",
+    "\\b(?:table of contents|all rights reserved|isbn|copyright)\\b",
+    "\\b(?:we|you)\\s+(?:will|shall)\\s+(?:see|discuss|describe|examine|explore|cover)\\b.*\\b(?:later|next|following|chapter|section)",
+  ].join("|"),
+  "i",
+);
+export function isCrossReference(sentence: string): boolean {
+  return CROSS_REFERENCE.test(sentence);
+}
+
 /** Heuristic: is this sentence usable as a standalone summary statement? */
 export function isUsableSentence(sentence: string): boolean {
   const words = countWords(sentence);
   if (words < 6 || words > 70) return false;
   const letters = (sentence.match(/\p{L}/gu) ?? []).length;
   if (letters / sentence.length < 0.6) return false;
-  if (/^(table|figure|fig\.|chart|graph|image|source|copyright|©|page)\s*\d*/i.test(sentence)) return false;
+  if (/^(table|figure|fig\.|chart|graph|image|source|copyright|©|page)\s*[\dIVX]*/i.test(sentence)) return false;
   if (/https?:\/\/\S{25,}/.test(sentence)) return false;
+  // Fragments that start mid-sentence (page breaks) or that introduce something else.
+  if (!/^[\p{Lu}\p{N}"“‘'(\[]/u.test(sentence)) return false;
+  if (/[:;,]$/.test(sentence)) return false;
+  // A cut-off sentence (page break, truncated column) ends on a connecting word.
+  const last = sentence.replace(/[^\p{L}\s]+$/u, "").trim().split(/\s+/).pop()?.toLowerCase() ?? "";
+  if (STOP_WORDS.has(last) || DANGLING.has(last)) return false;
+  if (isCrossReference(sentence)) return false;
   return true;
 }
 

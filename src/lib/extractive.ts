@@ -12,6 +12,8 @@ export type OfflineSource = { id: string; name: string; text: string };
 
 export type OfflineResult = {
   text: string;
+  /** Selected sentences in reading order (without citation tags). */
+  bullets: string[];
   inputWords: number;
   targetWords: number;
   outputWords: number;
@@ -36,11 +38,20 @@ const MIN_TARGET_WORDS = 25;
 
 export function summarizeOffline(
   sources: OfflineSource[],
-  options: { ratio: number; onProgress?: (fraction: number) => void },
+  options: {
+    ratio: number;
+    /** Exact word budget (overrides ratio). */
+    targetWords?: number;
+    /** "themes": bullets grouped under theme headings. "bullets": one flat list in reading order. */
+    format?: "themes" | "bullets";
+    /** Add [n] source tags (only useful with several sources). */
+    citations?: boolean;
+    onProgress?: (fraction: number) => void;
+  },
 ): OfflineResult {
   const inputWords = sources.reduce((sum, source) => sum + countWords(source.text), 0);
-  const targetWords = Math.min(inputWords, Math.max(Math.round(inputWords * options.ratio), MIN_TARGET_WORDS));
-  const empty: OfflineResult = { text: "", inputWords, targetWords, outputWords: 0, picked: 0, perSource: {} };
+  const targetWords = Math.min(inputWords, options.targetWords ?? Math.max(Math.round(inputWords * options.ratio), MIN_TARGET_WORDS));
+  const empty: OfflineResult = { text: "", bullets: [], inputWords, targetWords, outputWords: 0, picked: 0, perSource: {} };
   if (!inputWords) return empty;
 
   // 1. Candidate sentences -------------------------------------------------------------------
@@ -65,7 +76,7 @@ export function summarizeOffline(
   if (!raw.length) {
     // Nothing sentence-like (e.g. a list of short lines): fall back to the leading text.
     const joined = sources.map((s) => s.text.trim()).join("\n\n").split(/\s+/).slice(0, targetWords).join(" ");
-    return { ...empty, text: joined, outputWords: countWords(joined), picked: 0 };
+    return { ...empty, text: joined, bullets: joined ? [joined] : [], outputWords: countWords(joined), picked: 0 };
   }
   options.onProgress?.(0.15);
 
@@ -213,28 +224,40 @@ export function summarizeOffline(
   groups.forEach((group) => group.members.sort(order));
   groups.sort((g1, g2) => order(g1.members[0]!, g2.members[0]!));
 
+  const surface = (term: string, members: number[]): string => {
+    for (const m of members) {
+      for (const word of items[m]!.text.toLowerCase().match(/[\p{L}][\p{L}\p{N}]+/gu) ?? []) if (tokenize(word)[0] === term) return word;
+    }
+    return term;
+  };
   const label = (members: number[], max = 3): string => {
     const merged: SparseVector = new Map();
     for (const m of members) for (const [term, weight] of items[m]!.vector) merged.set(term, (merged.get(term) ?? 0) + weight);
-    const terms = topTerms(merged, max).map((t) => t.charAt(0).toUpperCase() + t.slice(1));
+    const terms = topTerms(merged, max).map((t) => surface(t, members)).map((t) => t.charAt(0).toUpperCase() + t.slice(1));
     return terms.length > 1 ? `${terms.slice(0, -1).join(", ")} & ${terms[terms.length - 1]}` : (terms[0] ?? "Key points");
   };
   const allMembers = groups.flatMap((g) => g.members);
   const title = `Summary: ${label(allMembers, 3)}`;
-  const cite = (item: Candidate) => ` [${item.source + 1}]`;
-  const sentenceOf = (index: number) => {
-    const item = items[index]!;
-    return `${item.text.replace(/\s+/g, " ").trim()}${cite(item)}`;
-  };
+  const tag = (item: Candidate) => (options.citations ? ` [${item.source + 1}]` : "");
+  const sentenceOf = (index: number) => `${items[index]!.text.replace(/\s+/g, " ").trim()}${tag(items[index]!)}`;
+  const plain = (index: number) => items[index]!.text.replace(/\s+/g, " ").trim();
 
-  const lines: string[] = [`# ${title}`, ""];
-  const useHeadings = groups.length >= 2 && chosen.length >= 5;
-  if (useHeadings) {
-    for (const group of groups) {
-      lines.push(`## ${label(group.members, 2)}`, group.members.map(sentenceOf).join(" "), "");
-    }
+  const format = options.format ?? "themes";
+  const lines: string[] = [];
+  let bullets: string[];
+  if (format === "bullets") {
+    const ordered = [...allMembers].sort(order);
+    bullets = ordered.map(plain);
+    lines.push(...ordered.map((i) => `- ${sentenceOf(i)}`));
   } else {
-    lines.push(allMembers.map(sentenceOf).join(" "), "");
+    bullets = allMembers.map(plain);
+    lines.push(`# ${title}`, "");
+    const useHeadings = groups.length >= 2 && chosen.length >= 5;
+    if (useHeadings) {
+      for (const group of groups) lines.push(`## ${label(group.members, 2)}`, ...group.members.map((i) => `- ${sentenceOf(i)}`), "");
+    } else {
+      lines.push(...allMembers.map((i) => `- ${sentenceOf(i)}`), "");
+    }
   }
   const text = lines.join("\n").trim();
 
@@ -243,5 +266,5 @@ export function summarizeOffline(
     perSource[source.id] = chosen.filter((c) => items[c]!.source === i).length;
   });
   options.onProgress?.(1);
-  return { text, inputWords, targetWords, outputWords: measureSummaryWords(text), picked: chosen.length, perSource };
+  return { text, bullets, inputWords, targetWords, outputWords: measureSummaryWords(text), picked: chosen.length, perSource };
 }

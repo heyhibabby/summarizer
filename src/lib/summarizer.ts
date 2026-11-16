@@ -1,3 +1,4 @@
+import type { Chapter } from "./chapters";
 import { cosine, countWords, tfidfVectors, tokenize, topTerms } from "./text";
 
 export { countWords };
@@ -23,6 +24,12 @@ export type SourceRecord = {
   status: "ready" | "error";
   note?: string;
   findings: Finding[];
+  /** Detected chapters/sections (when the source has structure). Toggle `included` per chapter. */
+  chapters?: Chapter[];
+  /** How chapters were found, for display. */
+  chapterMethod?: "bookmarks" | "font" | "headings" | "parts";
+  /** Original file, kept in memory so figure/table pages can be captured as images. */
+  file?: File;
 };
 
 export const DEFAULT_RATIO = 0.05;
@@ -144,6 +151,17 @@ export function findReviewFindings(text: string): Finding[] {
     }
   }
   return findings;
+}
+
+/** Remove text of excluded findings from any piece of source text. */
+export function stripExcluded(text: string, findings: Finding[]): string {
+  return findings.filter((f) => !f.included && f.remove).reduce((t, f) => t.split(f.remove).join(""), text).trim();
+}
+
+/** Text of a source as it will be summarized: included chapters only, excluded findings removed. */
+export function sourceBodyText(source: Pick<SourceRecord, "text" | "findings" | "chapters">): string {
+  const base = source.chapters?.length ? source.chapters.filter((c) => c.included).map((c) => c.text).join("\n\n") : source.text;
+  return stripExcluded(base, source.findings);
 }
 
 export function textWithoutExcludedFindings(source: Pick<SourceRecord, "text" | "findings">): string {
