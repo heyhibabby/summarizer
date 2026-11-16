@@ -39,6 +39,32 @@ describe("Briefly UI", () => {
     expect(screen.getByText(/2 sources/)).toBeInTheDocument();
   }, 15000);
 
+  it("shows the length slider at startup (1%–50%, default 5%)", async () => {
+    renderApp();
+    const slider = await screen.findByRole("slider", { name: /Percent of the original to keep/ });
+    expect(slider).toHaveAttribute("aria-valuemin", "1");
+    expect(slider).toHaveAttribute("aria-valuemax", "50");
+    expect(slider).toHaveAttribute("aria-valuenow", "5");
+  });
+
+  it("chapters: detected from pasted headings, summarized chapter by chapter", async () => {
+    const user = userEvent.setup();
+    const body = (t: string) => Array.from({ length: 14 }, (_, i) => `The ${t} changes in a measurable way when the mixture is cooled during stage ${i}, which producers track carefully.`).join(" ");
+    const text = `# Water\n\n${body("water")}\n\n# Sugars\n\n${body("sugar")}\n\n# Fats\n\n${body("fat")}`;
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: /Paste text/ }));
+    await user.click(screen.getByLabelText("Paste text"));
+    await user.paste(text);
+    await user.click(screen.getByRole("button", { name: /Add text/ }));
+    expect(await screen.findByRole("button", { name: /3\/3 chapters/ })).toBeInTheDocument();
+    expect(screen.getByLabelText("Summarize chapter by chapter")).toBeChecked();
+    await user.click(screen.getByRole("button", { name: /^Summarize$/ }));
+    const water = await screen.findByRole("region", { name: "Water" }, { timeout: 8000 });
+    expect(water).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Fats" })).toBeInTheDocument();
+    expect(screen.queryByText(/\[1\]/)).not.toBeInTheDocument();
+  }, 15000);
+
   it("help bubbles open on tap/click", async () => {
     const user = userEvent.setup();
     renderApp();

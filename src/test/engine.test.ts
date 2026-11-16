@@ -11,7 +11,7 @@ const bread = Array.from({ length: 20 }, (_, i) => `Sourdough bread needs a live
 
 describe("on-device summarizer", () => {
   it("lands near the 5% target, cites sources, covers each source", () => {
-    const r = summarizeOffline([{ id: "a", name: "A", text: doc(80) }, { id: "b", name: "B", text: doc(60, "trial") }], { ratio: 0.05 });
+    const r = summarizeOffline([{ id: "a", name: "A", text: doc(80) }, { id: "b", name: "B", text: doc(60, "trial") }], { ratio: 0.05, citations: true });
     expect(r.outputWords).toBeGreaterThan(r.targetWords * 0.75);
     expect(r.outputWords).toBeLessThan(r.targetWords * 1.2);
     expect(r.text).toMatch(/\[1\]/);
@@ -46,7 +46,7 @@ describe("topics & findings", () => {
 
 describe("pipeline", () => {
   it("chunks long input under the limit", () => {
-    const chunks = chunkSources([{ id: "a", name: "A", text: doc(300) }], 2000);
+    const chunks = chunkSources([{ name: "A", text: doc(300) }], 2000);
     expect(chunks.length).toBeGreaterThan(1);
     for (const c of chunks) expect(c.words).toBeLessThanOrEqual(2000);
   });
@@ -57,7 +57,7 @@ describe("pipeline", () => {
       prompts.push(body.messages[0].content);
       return new Response(JSON.stringify({ choices: [{ message: { content: "# Title\n\nA merged statement [1]. Another [2].\n\n## Sources\n1. junk" } }] }), { status: 200 });
     }));
-    const res = await runSummary({ engine: { kind: "ai", provider: "groq", key: "gsk_x", model: "m" }, sources: [{ id: "a", name: "A", text: doc(400) }, { id: "b", name: "B", text: doc(100) }], ratio: 0.05, keptVisuals: [], signal: new AbortController().signal, onProgress: () => {} });
+    const res = await runSummary({ engine: { kind: "ai", provider: "groq", key: "gsk_x", model: "m" }, sources: [{ id: "a", name: "A", text: doc(400) }, { id: "b", name: "B", text: doc(100) }], ratio: 0.05, byChapter: false, keptVisuals: [], signal: new AbortController().signal, onProgress: () => {} });
     expect(res.requests).toBeGreaterThan(2);
     expect(prompts.some((p) => p.startsWith("Summarize part"))).toBe(true);
     expect((res.text.match(/## Sources/g) ?? []).length).toBe(1);
