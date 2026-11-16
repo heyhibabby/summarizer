@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { InfoTip } from "@/components/app/info-tip";
 import { ACCEPTED_FILES, MAX_SOURCES } from "@/lib/extract";
 import { countWords, type SourceRecord } from "@/lib/summarizer";
+import { SPLIT_LABELS, type SplitChoice } from "@/lib/chapters";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -26,10 +27,11 @@ type Props = {
   onFinding: (sourceId: string, findingId: string, included: boolean) => void;
   onChapter: (sourceId: string, chapterId: string, included: boolean) => void;
   onAllChapters: (sourceId: string, included: boolean) => void;
+  onSplit: (sourceId: string, choice: SplitChoice) => void;
   onStop: () => void;
 };
 
-export function SourcesPanel({ sources, included, flagged, keywords, busy, busyLabel, onFiles, onPaste, onUrl, onSample, onRemove, onToggle, onFinding, onChapter, onAllChapters, onStop }: Props) {
+export function SourcesPanel({ sources, included, flagged, keywords, busy, busyLabel, onFiles, onPaste, onUrl, onSample, onRemove, onToggle, onFinding, onChapter, onAllChapters, onSplit, onStop }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<"" | "paste" | "url">("");
   const [pasted, setPasted] = useState("");
@@ -116,14 +118,14 @@ export function SourcesPanel({ sources, included, flagged, keywords, busy, busyL
 
       <ul className="space-y-2.5">
         {sources.map((source, index) => (
-          <SourceCard key={source.id} index={index} source={source} included={included(source.id)} flagged={flagged.has(source.id)} keywords={keywords[source.id] ?? []} onRemove={() => onRemove(source.id)} onToggle={(v) => onToggle(source.id, v)} onFinding={(fid, v) => onFinding(source.id, fid, v)} onChapter={(cid, v) => onChapter(source.id, cid, v)} onAllChapters={(v) => onAllChapters(source.id, v)} />
+          <SourceCard key={source.id} index={index} source={source} included={included(source.id)} flagged={flagged.has(source.id)} keywords={keywords[source.id] ?? []} onRemove={() => onRemove(source.id)} onToggle={(v) => onToggle(source.id, v)} onFinding={(fid, v) => onFinding(source.id, fid, v)} onChapter={(cid, v) => onChapter(source.id, cid, v)} onAllChapters={(v) => onAllChapters(source.id, v)} onSplit={(c) => onSplit(source.id, c)} />
         ))}
       </ul>
     </section>
   );
 }
 
-function SourceCard({ source, index, included, flagged, keywords, onRemove, onToggle, onFinding, onChapter, onAllChapters }: { source: SourceRecord; index: number; included: boolean; flagged: boolean; keywords: string[]; onRemove: () => void; onToggle: (included: boolean) => void; onFinding: (findingId: string, included: boolean) => void; onChapter: (chapterId: string, included: boolean) => void; onAllChapters: (included: boolean) => void }) {
+function SourceCard({ source, index, included, flagged, keywords, onRemove, onToggle, onFinding, onChapter, onAllChapters, onSplit }: { source: SourceRecord; index: number; included: boolean; flagged: boolean; keywords: string[]; onRemove: () => void; onToggle: (included: boolean) => void; onFinding: (findingId: string, included: boolean) => void; onChapter: (chapterId: string, included: boolean) => void; onAllChapters: (included: boolean) => void; onSplit: (choice: SplitChoice) => void }) {
   const [open, setOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const chapters = source.chapters ?? [];
@@ -154,6 +156,17 @@ function SourceCard({ source, index, included, flagged, keywords, onRemove, onTo
       </div>
       {chaptersOpen && chapters.length > 0 && (
         <div className="mt-2 border-t border-border pt-3">
+          {source.layout && (
+            <div className="mb-3">
+              <label htmlFor={`split-${source.id}`} className="mb-1 flex items-center gap-1 text-xs font-semibold">Split into sections by<InfoTip label="About splitting"><p>If the sections look wrong, pick another way to split the document. “Every N pages” always works, even when the book has no clear headings.</p></InfoTip></label>
+              <div className="relative">
+                <select id={`split-${source.id}`} value={source.split ?? "auto"} onChange={(e) => onSplit(e.target.value as SplitChoice)} className="h-11 w-full appearance-none rounded-md border border-input bg-background px-3 pr-10 text-base">
+                  {(Object.keys(SPLIT_LABELS) as SplitChoice[]).filter((k) => source.kind === "PDF" || k === "auto" || k === "headings").map((k) => <option key={k} value={k}>{SPLIT_LABELS[k]}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-3.5 size-4 text-muted-foreground" />
+              </div>
+            </div>
+          )}
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">Untick front matter, index or anything you don’t want summarized.</p>
             <span className="flex shrink-0 gap-1"><Button variant="outline" size="sm" className="h-8" onClick={() => onAllChapters(true)}>All</Button><Button variant="outline" size="sm" className="h-8" onClick={() => onAllChapters(false)}>None</Button></span>
