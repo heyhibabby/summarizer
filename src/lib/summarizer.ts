@@ -1,4 +1,4 @@
-import type { Chapter } from "./chapters";
+import type { Chapter, ChapterMethod, Line, OutlineEntry, SplitChoice } from "./chapters";
 import { cosine, countWords, tfidfVectors, tokenize, topTerms } from "./text";
 
 export { countWords };
@@ -27,7 +27,11 @@ export type SourceRecord = {
   /** Detected chapters/sections (when the source has structure). Toggle `included` per chapter. */
   chapters?: Chapter[];
   /** How chapters were found, for display. */
-  chapterMethod?: "bookmarks" | "font" | "headings" | "parts";
+  chapterMethod?: ChapterMethod;
+  /** Raw lines + bookmarks, kept so the user can re-split the document differently. */
+  layout?: { lines: Line[]; outline: OutlineEntry[] };
+  /** Which splitting option the user picked (default automatic). */
+  split?: SplitChoice;
   /** Original file, kept in memory so figure/table pages can be captured as images. */
   file?: File;
 };

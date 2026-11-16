@@ -174,32 +174,36 @@ export function summarizeOffline(
   const chosenSet = new Set<number>();
   let total = 0;
   const lambda = 0.72;
-  while (total < targetWords * 0.94) {
-    let best = -1;
-    let bestValue = -Infinity;
-    const room = targetWords * 1.12 - total;
-    for (let i = 0; i < n; i += 1) {
-      if (chosenSet.has(i)) continue;
-      const item = items[i]!;
-      if (chosen.length && item.words > room) continue;
-      let redundancy = 0;
-      for (const c of chosen) redundancy = Math.max(redundancy, sim[i * n + c]!);
-      if (redundancy >= DUPLICATE_SIMILARITY) continue;
-      let value = lambda * item.score - (1 - lambda) * redundancy;
-      const q = quota[item.source] ?? 0;
-      if ((usedWords[item.source] ?? 0) > q * 1.25 + 20) value *= 0.55;
-      if ((usedWords[item.source] ?? 0) === 0) value *= 1.2; // make sure every source is represented
-      if (value > bestValue) {
-        bestValue = value;
-        best = i;
+  // If near-duplicate removal leaves us well short of the budget, relax it step by step instead of returning a tiny summary.
+  for (const duplicateLimit of [DUPLICATE_SIMILARITY, 0.7, 0.85, 1.01]) {
+    while (total < targetWords * 0.94) {
+      let best = -1;
+      let bestValue = -Infinity;
+      const room = targetWords * 1.12 - total;
+      for (let i = 0; i < n; i += 1) {
+        if (chosenSet.has(i)) continue;
+        const item = items[i]!;
+        if (chosen.length && item.words > room) continue;
+        let redundancy = 0;
+        for (const c of chosen) redundancy = Math.max(redundancy, sim[i * n + c]!);
+        if (redundancy >= duplicateLimit) continue;
+        let value = lambda * item.score - (1 - lambda) * redundancy;
+        const q = quota[item.source] ?? 0;
+        if ((usedWords[item.source] ?? 0) > q * 1.25 + 20) value *= 0.55;
+        if ((usedWords[item.source] ?? 0) === 0) value *= 1.2; // make sure every source is represented
+        if (value > bestValue) {
+          bestValue = value;
+          best = i;
+        }
       }
+      if (best < 0) break;
+      chosen.push(best);
+      chosenSet.add(best);
+      const item = items[best]!;
+      total += item.words;
+      usedWords[item.source] = (usedWords[item.source] ?? 0) + item.words;
     }
-    if (best < 0) break;
-    chosen.push(best);
-    chosenSet.add(best);
-    const item = items[best]!;
-    total += item.words;
-    usedWords[item.source] = (usedWords[item.source] ?? 0) + item.words;
+    if (total >= targetWords * 0.8) break;
   }
   options.onProgress?.(0.9);
 

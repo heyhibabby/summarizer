@@ -10,13 +10,14 @@ export const ACCEPTED_FILES = ".pdf,.docx,.txt,.md,.markdown,application/pdf,app
 
 export type Progress = (label: string) => void;
 
-export type Structure = { chapters: Chapter[]; method: NonNullable<SourceRecord["chapterMethod"]> };
+export type Structure = { chapters: Chapter[]; method: NonNullable<SourceRecord["chapterMethod"]>; layout?: { lines: Line[]; outline: OutlineEntry[] } };
 
 export function makeSource(name: string, kind: SourceKind, text: string, note?: string, extraFindings: Finding[] = [], structure?: Structure | null, file?: File): SourceRecord {
   const trimmed = text.length > MAX_EXTRACTED_CHARS ? text.slice(0, MAX_EXTRACTED_CHARS) : text;
   const truncated = trimmed.length < text.length ? `Only the first ${MAX_EXTRACTED_CHARS.toLocaleString()} characters were read.` : "";
   // PDFs bring page-aware findings of their own; running the plain-text detector too would list every caption twice.
-  const findings = [...(kind === "PDF" ? [] : findReviewFindings(trimmed)), ...extraFindings].map((finding, index) => ({ ...finding, id: `${finding.kind}-${index}` }));
+  // "see Table 7-35" style mentions are noise: only real captions, tables and images are worth listing.
+  const findings = [...(kind === "PDF" ? [] : findReviewFindings(trimmed)), ...extraFindings].filter((f) => !/mention$/i.test(f.label)).map((finding, index) => ({ ...finding, id: `${finding.kind}-${index}` }));
   const joined = [note, truncated].filter(Boolean).join(" ");
   let found = structure ?? null;
   if (found === null && structure === undefined && (kind === "Text" || kind === "Markdown" || kind === "Pasted text" || kind === "Word")) {
@@ -31,7 +32,7 @@ export function makeSource(name: string, kind: SourceKind, text: string, note?: 
     status: "ready",
     ...(joined ? { note: joined } : {}),
     findings,
-    ...(found && found.chapters.length >= 2 ? { chapters: found.chapters, chapterMethod: found.method } : {}),
+    ...(found && found.chapters.length >= 2 ? { chapters: found.chapters, chapterMethod: found.method, ...(found.layout ? { layout: found.layout } : { layout: { lines: trimmed.split("\n").map((t) => ({ text: t })), outline: [] } }) } : {}),
     ...(file ? { file } : {}),
   };
 }
@@ -201,7 +202,7 @@ export async function analyzePdf(pdfjs: PdfLib, doc: PdfDoc, fileName: string, s
       textFindings.push({ ...f, page: pageNumber });
     }
   }
-  return { text, chapters, method: built.method, findings: [...textFindings, ...imageFindings.slice(0, 80)], numPages: doc.numPages, read: limit, skippedPages: skipped.size };
+  return { text, chapters, method: built.method, layout: { lines, outline }, findings: [...textFindings, ...imageFindings.slice(0, 80)], numPages: doc.numPages, read: limit, skippedPages: skipped.size };
 }
 
 async function extractPdf(file: File, signal: AbortSignal, progress: Progress): Promise<SourceRecord> {
@@ -218,13 +219,13 @@ async function extractPdf(file: File, signal: AbortSignal, progress: Progress): 
   }
   const result = await analyzePdf(pdfjs, doc, file.name, signal, progress);
   if (countWords(result.text) < 20) throw new ExtractError(`${file.name}: little or no selectable text. This looks like a scanned or image-only PDF — run OCR on it or paste its text instead.`);
-  const how = { bookmarks: "from the PDF’s bookmarks", font: "from heading sizes", headings: "from chapter headings", parts: "split into equal parts (no headings found)" }[result.method];
+  const how = { bookmarks: "from the PDF’s bookmarks", font: "from heading sizes", headings: "from chapter headings", captions: "from table/figure numbers", parts: "as equal page ranges (no clear headings found)" }[result.method];
   const bits = [
     result.numPages > result.read ? `Read the first ${result.read} of ${result.numPages} pages.` : "",
     result.chapters.length >= 2 ? `${result.chapters.length} sections detected ${how}.` : "",
     result.skippedPages ? `${result.skippedPages} contents/index page${result.skippedPages === 1 ? "" : "s"} skipped.` : "",
   ].filter(Boolean);
-  const structure: Structure | null = result.chapters.length >= 2 ? { chapters: result.chapters, method: result.method } : null;
+  const structure: Structure | null = result.chapters.length >= 2 ? { chapters: result.chapters, method: result.method, layout: result.layout } : null;
   return makeSource(file.name, "PDF", result.text, bits.join(" "), result.findings.map((f) => ({ ...f })), structure, file);
 }
 
