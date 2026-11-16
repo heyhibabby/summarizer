@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildChapters, chaptersFromText } from "@/lib/chapters";
+import { buildChapters, chaptersFromText, type Line } from "@/lib/chapters";
 import { makeSource } from "@/lib/extract";
 import { runSummary, outlineToMarkdown, type PreparedSource } from "@/lib/pipeline";
 import { chapterVisuals } from "@/lib/visuals";
@@ -97,5 +97,45 @@ describe("chapter-by-chapter pipeline", () => {
   it("AI: a rejected key stops the whole run", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "Incorrect API key" } }), { status: 401 })));
     await expect(runSummary({ ...base, engine: { kind: "ai", provider: "openai", key: "sk-x", model: "m" }, sources: prepared(), signal: new AbortController().signal })).rejects.toMatchObject({ kind: "auth" });
+  });
+});
+
+describe("detection on messy books", () => {
+  const body = (n: number, tag: string) => Array.from({ length: n }, (_, i) => ({ text: `The ${tag} line ${i} explains how sugars, fats and proteins behave when the mixture is cooled slowly.`, size: 10 }));
+  const book = (opts: { runningHead: boolean; garbled: boolean; realHeadings: boolean; captions?: boolean }) => {
+    const lines: Line[] = [];
+    let page = 0;
+    for (let c = 0; c < 10; c += 1) {
+      for (let p = 0; p < 8; p += 1) {
+        page += 1;
+        if (opts.runningHead) lines.push({ text: "SECTION", size: 14, page });
+        if (p === 0 && opts.realHeadings) lines.push({ text: `The structure of topic number ${c + 1}`, size: 18, page });
+        if (p === 0 && opts.garbled && c < 4) lines.push({ text: "FcDx", size: 22, page });
+        for (const l of body(26, `c${c}p${p}`)) lines.push({ ...l, page });
+        if (opts.captions && p === 2) lines.push({ text: `Table ${33 + c}-1 Values for chapter ${33 + c}`, size: 10, page });
+      }
+    }
+    return lines;
+  };
+  it("ignores running heads and garbled glyphs, picks the real heading size", () => {
+    const r = buildChapters(book({ runningHead: true, garbled: true, realHeadings: true }));
+    expect(r.method).toBe("font");
+    expect(r.chapters.length).toBe(10);
+    expect(r.chapters[0]!.title).toMatch(/structure of topic/);
+  });
+  it("with no usable headings falls back to balanced page ranges, not one giant chunk", () => {
+    const r = buildChapters(book({ runningHead: true, garbled: false, realHeadings: false }));
+    expect(r.method).toBe("parts");
+    expect(r.chapters.length).toBeGreaterThanOrEqual(8);
+    const words = r.chapters.map((c) => c.text.split(/\s+/).length);
+    expect(Math.max(...words) / words.reduce((a, b) => a + b, 0)).toBeLessThan(0.3);
+  });
+  it("can split by table numbers and by every N pages on request", () => {
+    const lines = book({ runningHead: false, garbled: false, realHeadings: false, captions: true });
+    const byNum = buildChapters(lines, [], "captions");
+    expect(byNum.chapters.map((c) => c.title).filter((t) => /^Chapter/.test(t)).length).toBe(10);
+    const per10 = buildChapters(lines, [], "pages10");
+    expect(per10.chapters.length).toBe(8);
+    expect(per10.chapters[0]!.title).toBe("Pages 1–10");
   });
 });

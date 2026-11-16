@@ -27,6 +27,14 @@ describe("on-device summarizer", () => {
   });
 });
 
+describe("on-device summarizer (regressions)", () => {
+  it("fills the word budget even when sentences are very similar to each other", () => {
+    const repetitive = Array.from({ length: 900 }, (_, i) => `In batch ${i} researchers studying ${topics[i % 16]} reported that ${topics[(i * 7 + 3) % 16]} interacts with ${topics[(i * 11 + 5) % 16]} at ${i % 37 + 3} degrees.`).join(" ");
+    const r = summarizeOffline([{ id: "a", name: "A", text: repetitive }], { ratio: 0.1, targetWords: 1500, format: "bullets", citations: false });
+    expect(r.outputWords).toBeGreaterThan(1500 * 0.75);
+  });
+});
+
 describe("topics & findings", () => {
   it("flags the off-topic source among three", () => {
     const a = analyzeTopics([{ id: "a", text: doc(30) }, { id: "b", text: doc(30, "trial") }, { id: "c", text: bread }]);

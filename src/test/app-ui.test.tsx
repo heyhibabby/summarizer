@@ -34,9 +34,10 @@ describe("Briefly UI", () => {
     expect(screen.getAllByText(/Different topic from most sources/).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: /^Summarize$/ }));
     expect(await screen.findByLabelText("Summary", {}, { timeout: 8000 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /PowerPoint/ })).toBeInTheDocument();
-    // off-topic sample excluded by default → only 2 sources used
-    expect(screen.getByText(/2 sources/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^PowerPoint$/ })).toBeInTheDocument();
+    expect(screen.getByText(/Summary ready/)).toBeInTheDocument();
+    // off-topic sample is excluded by default → the summary draws on the two on-topic sources
+    expect(within(screen.getByLabelText("Summary")).queryByText(/sourdough|starter|crust/i)).not.toBeInTheDocument();
   }, 15000);
 
   it("shows the length slider at startup (1%–50%, default 5%)", async () => {
