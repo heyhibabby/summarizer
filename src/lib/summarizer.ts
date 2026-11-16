@@ -1,12 +1,8 @@
-export type SourceRecord = {
-  id: string;
-  name: string;
-  kind: "PDF" | "Text" | "Markdown" | "Pasted text" | "Article";
-  text: string;
-  status: "ready" | "error";
-  note?: string;
-  findings: Finding[];
-};
+import { cosine, countWords, tfidfVectors, tokenize, topTerms } from "./text";
+
+export { countWords };
+
+export type SourceKind = "PDF" | "Word" | "Text" | "Markdown" | "Pasted text" | "Article";
 
 export type Finding = {
   id: string;
@@ -14,174 +10,162 @@ export type Finding = {
   label: string;
   excerpt: string;
   included: boolean;
+  /** Exact text removed from the input when this finding is excluded (empty for non-text objects). */
+  remove: string;
+  page?: number;
 };
 
-const stopWords = new Set(
-  "about after again all also and are because been before being between both but can could did does each for from had has have here how into its just more most not our out over same should some such than that the their them then there these they this those through under was were what when where which while who will with would you your a an as at by do if in is it of on or to we".split(
-    " ",
-  ),
-);
+export type SourceRecord = {
+  id: string;
+  name: string;
+  kind: SourceKind;
+  text: string;
+  status: "ready" | "error";
+  note?: string;
+  findings: Finding[];
+};
 
-export function countWords(text: string): number {
-  return text.trim().match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+export const DEFAULT_RATIO = 0.05;
+
+export function targetWordCount(inputWords: number, ratio: number = DEFAULT_RATIO): number {
+  return Math.max(1, Math.round(inputWords * ratio));
 }
 
-export function targetWordCount(inputWords: number): number {
-  return Math.max(1, Math.round(inputWords * 0.05));
+/* ----------------------------------------------------------------------------------------- */
+/* Topic comparison                                                                          */
+/* ----------------------------------------------------------------------------------------- */
+
+export type TopicAnalysis = {
+  scores: Record<string, number>;
+  outliers: string[];
+  /** Only two sources and they look unrelated — there is no "majority" to compare against. */
+  pairWarning: boolean;
+  keywords: Record<string, string[]>;
+};
+
+function surfaceTerms(text: string, stems: string[]): string[] {
+  const wanted = new Set(stems);
+  const best = new Map<string, Map<string, number>>();
+  const words = text.toLowerCase().match(/[\p{L}][\p{L}\p{N}]{2,}/gu) ?? [];
+  for (const word of words.slice(0, 40_000)) {
+    const [stemmed] = tokenize(word);
+    if (!stemmed || !wanted.has(stemmed)) continue;
+    const forms = best.get(stemmed) ?? new Map<string, number>();
+    forms.set(word, (forms.get(word) ?? 0) + 1);
+    best.set(stemmed, forms);
+  }
+  return stems.map((stem) => [...(best.get(stem) ?? new Map([[stem, 1]])).entries()].sort((a, b) => b[1] - a[1])[0]![0]);
 }
 
-function topicTerms(text: string): Set<string> {
-  const words = text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [];
-  return new Set(words.filter((word) => !stopWords.has(word)));
-}
+export function analyzeTopics(sources: Pick<SourceRecord, "id" | "text">[]): TopicAnalysis {
+  const scores: Record<string, number> = {};
+  const keywords: Record<string, string[]> = {};
+  if (!sources.length) return { scores, outliers: [], pairWarning: false, keywords };
+  const { vectors } = tfidfVectors(sources.map((s) => tokenize(s.text)));
+  sources.forEach((source, i) => {
+    keywords[source.id] = surfaceTerms(source.text, topTerms(vectors[i]!, 5));
+  });
+  if (sources.length < 2) return { scores, outliers: [], pairWarning: false, keywords };
 
-function similarity(left: Set<string>, right: Set<string>): number {
-  if (!left.size || !right.size) return 0;
-  let shared = 0;
-  for (const word of left) if (right.has(word)) shared += 1;
-  return shared / (left.size + right.size - shared);
+  const n = sources.length;
+  const pair: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  for (let i = 0; i < n; i += 1) for (let j = i + 1; j < n; j += 1) pair[i]![j] = pair[j]![i] = cosine(vectors[i]!, vectors[j]!);
+  const mean = sources.map((_, i) => pair[i]!.filter((_, j) => j !== i).reduce((a, b) => a + b, 0) / (n - 1));
+  sources.forEach((s, i) => {
+    scores[s.id] = mean[i]!;
+  });
+
+  if (n === 2) return { scores, outliers: [], pairWarning: pair[0]![1]! < 0.08, keywords };
+
+  const sorted = [...mean].sort((a, b) => a - b);
+  const typical = sorted[Math.floor(n / 2)] ?? 0;
+  const maxOutliers = Math.floor((n - 1) / 2); // outliers must be a minority
+  const outliers = sources
+    .map((s, i) => ({ id: s.id, score: mean[i]! }))
+    .filter((x) => x.score < 0.5 * typical && x.score < 0.2)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, maxOutliers)
+    .map((x) => x.id);
+  return { scores, outliers, pairWarning: false, keywords };
 }
 
 export function findTopicOutliers(sources: Pick<SourceRecord, "id" | "text">[]): string[] {
-  if (sources.length < 2) return [];
-  const terms = sources.map((source) => topicTerms(source.text));
-  const scores = terms.map((sourceTerms, index) => {
-    const others = terms.filter((_, otherIndex) => otherIndex !== index);
-    return others.reduce((sum, other) => sum + similarity(sourceTerms, other), 0) / others.length;
-  });
-  const typical = [...scores].sort((a, b) => a - b)[Math.floor(scores.length / 2)] ?? 0;
-  const lowBar = Math.max(0.08, typical * 0.45);
-  return sources.filter((_, index) => (scores[index] ?? 0) < lowBar).map((source) => source.id);
+  return analyzeTopics(sources).outliers;
 }
 
-const findingPatterns: { kind: Finding["kind"]; pattern: RegExp }[] = [
-  { kind: "table", pattern: /\b(table|tabular data|rows and columns)\b/i },
-  { kind: "chart", pattern: /\b(chart|graph|figure|trend line|bar graph|pie chart)\b/i },
-  { kind: "image", pattern: /\b(image|photograph|illustration|screenshot|diagram)\b/i },
+/* ----------------------------------------------------------------------------------------- */
+/* Visual-content findings (text-detectable only)                                            */
+/* ----------------------------------------------------------------------------------------- */
+
+const CAPTION: { kind: Finding["kind"]; pattern: RegExp }[] = [
+  { kind: "table", pattern: /^(?:table|tbl\.?)\s*[\dIVX]+\s*[.:)\-–—]?\s*/i },
+  { kind: "chart", pattern: /^(?:figure|fig\.?|chart|graph|plot|exhibit)\s*[\dIVX]+\s*[.:)\-–—]?\s*/i },
+  { kind: "image", pattern: /^(?:image|photo|photograph|illustration|diagram|screenshot)\s*[\dIVX]*\s*[.:)\-–—]\s*/i },
 ];
+const REFERENCE = /\b(?:see|shown in|as shown in|illustrated in|refer to|depicted in|presented in)\s+(?:the\s+)?(table|figure|fig\.|chart|graph|diagram|image)\b/i;
 
 export function findReviewFindings(text: string): Finding[] {
-  const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
   const findings: Finding[] = [];
-  for (const line of lines) {
-    const match = findingPatterns.find(({ pattern }) => pattern.test(line));
-    if (!match) continue;
-    const excerpt = line.slice(0, 240);
-    if (findings.some((finding) => finding.kind === match.kind && finding.excerpt === excerpt)) continue;
-    findings.push({
-      id: `${match.kind}-${findings.length}-${excerpt.length}`,
-      kind: match.kind,
-      label: `${match.kind[0]?.toUpperCase() ?? ""}${match.kind.slice(1)} reference`,
-      excerpt,
-      included: true,
-    });
+  const seen = new Set<string>();
+  const push = (kind: Finding["kind"], label: string, excerpt: string, remove: string) => {
+    const clipped = excerpt.replace(/\s+/g, " ").trim().slice(0, 200);
+    const key = `${kind}:${clipped}`;
+    if (!clipped || seen.has(key) || findings.length >= 60) return;
+    seen.add(key);
+    findings.push({ id: `${kind}-${findings.length}`, kind, label, excerpt: clipped, included: true, remove });
+  };
+
+  const lines = text.split(/\n/);
+  // Markdown tables: 2+ consecutive pipe rows.
+  for (let i = 0; i < lines.length; i += 1) {
+    if ((lines[i]!.match(/\|/g) ?? []).length >= 2) {
+      let j = i;
+      while (j < lines.length && (lines[j]!.match(/\|/g) ?? []).length >= 2) j += 1;
+      if (j - i >= 2) {
+        push("table", "Table", lines[i]!, lines.slice(i, j).join("\n"));
+        i = j;
+      }
+    }
+  }
+  for (const match of text.matchAll(/!\[([^\]]*)\]\([^)]*\)/g)) push("image", "Image", match[1] || "Embedded image", match[0]);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.length > 400) continue;
+    const caption = CAPTION.find(({ pattern }) => pattern.test(line));
+    if (caption) {
+      push(caption.kind, caption.kind[0]!.toUpperCase() + caption.kind.slice(1), line, line);
+      continue;
+    }
+    const ref = REFERENCE.exec(line);
+    if (ref) {
+      const word = ref[1]!.toLowerCase();
+      const kind: Finding["kind"] = word.startsWith("table") ? "table" : word === "image" ? "image" : "chart";
+      push(kind, `${kind[0]!.toUpperCase()}${kind.slice(1)} mention`, line, "");
+    }
   }
   return findings;
 }
 
-export function textWithoutExcludedFindings(source: SourceRecord): string {
-  const excluded = source.findings.filter((finding) => !finding.included).map((finding) => finding.excerpt);
-  return excluded.reduce((text, excerpt) => text.replace(excerpt, ""), source.text).trim();
+export function textWithoutExcludedFindings(source: Pick<SourceRecord, "text" | "findings">): string {
+  return source.findings
+    .filter((finding) => !finding.included && finding.remove)
+    .reduce((text, finding) => text.split(finding.remove).join(""), source.text)
+    .trim();
 }
 
 export function deduplicateLines(text: string): string {
   const seen = new Set<string>();
   return text
-    .split(/\n+/)
-    .map((line) => line.trim())
+    .split(/\n/)
     .filter((line) => {
-      if (!line) return false;
       const key = line.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+      if (!key) return true; // keep blank lines (paragraph breaks)
+      if (key.length < 25) return true; // headings / very short lines are allowed to repeat
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .join("\n");
-}
-
-export type ProviderId = "google" | "openai" | "openrouter";
-
-export const providerDetails: Record<ProviderId, { label: string; base: string; keyHelp: string; limitation: string }> = {
-  google: {
-    label: "Google Gemini",
-    base: "https://generativelanguage.googleapis.com/v1beta",
-    keyHelp: "Create a Gemini API key in Google AI Studio. Use a key restricted to Gemini API; model access and free/paid quotas vary by account and region.",
-    limitation: "Google describes direct browser Gemini calls as prototyping; do not use this for an enterprise or sensitive-data workflow.",
-  },
-  openai: {
-    label: "OpenAI",
-    base: "https://api.openai.com/v1",
-    keyHelp: "Create a project API key in the OpenAI platform. API billing is separate from ChatGPT and follows the model’s token pricing and project limits.",
-    limitation: "OpenAI advises against putting standard API keys in browsers. Direct browser access may be blocked or restricted; use only a dedicated, limited key and stop if the browser blocks it.",
-  },
-  openrouter: {
-    label: "OpenRouter",
-    base: "https://openrouter.ai/api/v1",
-    keyHelp: "Create an OpenRouter API key. Model prices, provider availability, and limits vary; check the selected model’s page and account limits.",
-    limitation: "Direct browser access depends on provider CORS behavior. This app never routes around a blocked request or switches providers silently.",
-  },
-};
-
-type ProviderModel = { id: string; name: string };
-
-export async function listProviderModels(provider: ProviderId, apiKey: string, signal?: AbortSignal): Promise<ProviderModel[]> {
-  const headers: HeadersInit = provider === "google" ? {} : { Authorization: `Bearer ${apiKey}` };
-  const endpoint = provider === "google"
-    ? `${providerDetails.google.base}/models?key=${encodeURIComponent(apiKey)}`
-    : `${providerDetails[provider].base}/models`;
-  const response = await fetch(endpoint, { headers, ...(signal ? { signal } : {}) });
-  if (!response.ok) throw new Error(await providerError(response));
-  const data = await response.json() as { data?: { id?: string }[]; models?: { name?: string; displayName?: string; supportedGenerationMethods?: string[] }[] };
-  if (provider === "google") {
-    return (data.models ?? [])
-      .filter((model) => model.supportedGenerationMethods?.includes("generateContent") && model.name)
-      .map((model) => ({ id: model.name?.replace(/^models\//, "") ?? "", name: model.displayName ?? model.name?.replace(/^models\//, "") ?? "" }))
-      .filter((model) => model.id && !/embedding|tts|image|veo/i.test(model.id));
-  }
-  return (data.data ?? []).map((model) => ({ id: model.id ?? "", name: model.id ?? "" })).filter((model) => model.id && !/embedding|audio|whisper|moderation|tts/i.test(model.id));
-}
-
-async function providerError(response: Response): Promise<string> {
-  const body = await response.text().catch(() => "");
-  const status = response.status;
-  if (status === 401 || status === 403) return `The provider rejected this key (${status}). Check the key and its access. No other provider was selected.`;
-  if (status === 429) return "The provider rate limit or account quota was reached. Check your plan, usage, and billing with the selected provider.";
-  if (status === 404) return "That model or endpoint is unavailable to this key. Choose a model shown by the provider and try again.";
-  return `The provider returned ${status}. ${body.slice(0, 260)}`;
-}
-
-export async function requestCompletion(provider: ProviderId, apiKey: string, model: string, prompt: string, signal?: AbortSignal): Promise<string> {
-  let response: Response;
-  if (provider === "google") {
-    response = await fetch(`${providerDetails.google.base}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } }),
-      ...(signal ? { signal } : {}),
-    });
-  } else {
-    response = await fetch(`${providerDetails[provider].base}/chat/completions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], temperature: 0.2 }),
-      ...(signal ? { signal } : {}),
-    });
-  }
-  if (!response.ok) throw new Error(await providerError(response));
-  const data = await response.json() as {
-    choices?: { message?: { content?: string | { type: string; text?: string }[] } }[];
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  const content = provider === "google"
-    ? data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("\n")
-    : data.choices?.[0]?.message?.content;
-  const text = Array.isArray(content) ? content.map((part) => typeof part === "string" ? part : part.text ?? "").join("\n") : content;
-  if (!text?.trim()) throw new Error("The selected model returned no readable text. Try another model from the same provider.");
-  return text.trim();
-}
-
-export function friendlyNetworkError(error: unknown): string {
-  if (error instanceof DOMException && error.name === "AbortError") return "Stopped. Your source files remain in this browser until you clear this session.";
-  if (error instanceof TypeError) return "The browser could not reach this provider, often because of CORS or a network issue. This app does not use a proxy or switch providers. Try the same provider again or use a provider whose browser request is allowed.";
-  return error instanceof Error ? error.message : "Something went wrong. Check your connection and try again.";
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
