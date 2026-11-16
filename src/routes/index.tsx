@@ -17,6 +17,7 @@ import { chapterVisuals, renderPdfPage } from "@/lib/visuals";
 import { LengthCard } from "@/components/app/length-card";
 import { describeError, ProviderError } from "@/lib/providers";
 import { useSettings, type EngineChoice } from "@/lib/settings";
+import { buildChapters, type SplitChoice } from "@/lib/chapters";
 import { analyzeTopics, countWords, sourceBodyText, stripExcluded, targetWordCount, type SourceRecord } from "@/lib/summarizer";
 
 export const Route = createFileRoute("/")({
@@ -141,6 +142,18 @@ function Home() {
   const setEngine = (choice: EngineChoice) => {
     setPrefs({ engine: choice });
     setError("");
+  };
+
+  const onSplit = (id: string, choice: SplitChoice) => {
+    const src = sources.find((x) => x.id === id);
+    if (!src?.layout) return;
+    const built = buildChapters(src.layout.lines, src.layout.outline, choice);
+    if (built.chapters.length < 2) {
+      setNotice("That option found no sections in this document. Try another one.");
+      return;
+    }
+    patchSource(id, (current) => ({ ...current, chapters: built.chapters, chapterMethod: built.method, split: choice }));
+    setNotice(`${built.chapters.length} sections found.`);
   };
 
   const attachSnapshots = async (res: RunResult, files: (File | undefined)[]) => {
@@ -350,6 +363,7 @@ function Home() {
                 onFinding={(sid, fid, value) => { setSources((c) => c.map((s) => (s.id === sid ? { ...s, findings: s.findings.map((f) => (f.id === fid ? { ...f, included: value } : f)) } : s))); invalidate(); }}
                 onChapter={(sid, cid, value) => patchSource(sid, (src) => ({ ...src, chapters: (src.chapters ?? []).map((c) => (c.id === cid ? { ...c, included: value } : c)) }))}
                 onAllChapters={(sid, value) => patchSource(sid, (src) => ({ ...src, chapters: (src.chapters ?? []).map((c) => ({ ...c, included: value })) }))}
+                onSplit={onSplit}
                 onStop={stop}
               />
               <div ref={resultRef} className="scroll-mt-4">{result && <OutputPanel result={result} rerunning={working} status={snapStatus} onRerun={() => void summarize()} />}</div>
@@ -378,6 +392,11 @@ function Home() {
                 <p className="truncate font-medium">{busyLabel}…</p>
                 <Progress value={Math.round(progress * 100)} className="mt-1.5 h-1.5" />
               </>
+            ) : result ? (
+              <button type="button" onClick={() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })} className="text-left">
+                <p className="flex items-center gap-1.5 truncate font-semibold text-primary"><Check className="size-4" />Summary ready · tap to view</p>
+                <p className="truncate text-xs text-muted-foreground">{result.outputWords.toLocaleString()} words · Copy, Markdown, PowerPoint below it</p>
+              </button>
             ) : active.length ? (
               <>
                 <p className="truncate font-medium">{active.length} source{active.length === 1 ? "" : "s"} · {inputWords.toLocaleString()} words → ~{targetWords.toLocaleString()} ({Math.round(prefs.ratio * 100)}%)</p>
