@@ -12,10 +12,12 @@ import { ThemeMenu } from "@/components/app/theme-menu";
 import { SAMPLE_DOCS } from "@/components/app/samples";
 import { useConnections } from "@/lib/connections";
 import { fetchArticle, makeSource, MAX_SOURCES, readFiles } from "@/lib/extract";
-import { runSummary, type Engine, type RunResult } from "@/lib/pipeline";
+import { runSummary, type Engine, type PreparedSource, type RunResult } from "@/lib/pipeline";
+import { chapterVisuals, renderPdfPage } from "@/lib/visuals";
+import { LengthCard } from "@/components/app/length-card";
 import { describeError, ProviderError } from "@/lib/providers";
 import { useSettings, type EngineChoice } from "@/lib/settings";
-import { analyzeTopics, countWords, targetWordCount, textWithoutExcludedFindings, type SourceRecord } from "@/lib/summarizer";
+import { analyzeTopics, countWords, sourceBodyText, stripExcluded, targetWordCount, type SourceRecord } from "@/lib/summarizer";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -44,6 +46,10 @@ function Home() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [result, setResult] = useState<RunResult | null>(null);
+  const [byChapter, setByChapter] = useState(true);
+  const [snapshots, setSnapshots] = useState(true);
+  const [snapStatus, setSnapStatus] = useState("");
+  const snapAbort = useRef<AbortController | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const initialised = useRef(false);
@@ -59,11 +65,22 @@ function Home() {
   const flagged = useMemo(() => new Set(topics.outliers), [topics]);
   const included = useCallback((id: string) => overrides[id] ?? !flagged.has(id), [overrides, flagged]);
   const active = useMemo(() => sources.filter((s) => s.status === "ready" && included(s.id)), [sources, included]);
-  const inputWords = useMemo(() => active.reduce((sum, s) => sum + countWords(textWithoutExcludedFindings(s)), 0), [active]);
+  const inputWords = useMemo(() => active.reduce((sum, s) => sum + countWords(sourceBodyText(s)), 0), [active]);
+  const hasChapters = active.some((s) => (s.chapters?.length ?? 0) > 0);
+  const chapterMode = hasChapters && byChapter;
+  const hasPdf = active.some((s) => s.file);
   const targetWords = targetWordCount(inputWords, prefs.ratio);
   const engine = engineSummary(prefs, keys, connections);
 
-  const invalidate = () => setResult(null);
+  const invalidate = () => {
+    snapAbort.current?.abort();
+    setSnapStatus("");
+    setResult(null);
+  };
+  const patchSource = (id: string, fn: (s: SourceRecord) => SourceRecord) => {
+    setSources((c) => c.map((s) => (s.id === id ? fn(s) : s)));
+    invalidate();
+  };
 
   const addSources = useCallback((next: SourceRecord[]) => {
     setSources((current) => {
@@ -126,6 +143,39 @@ function Home() {
     setError("");
   };
 
+  const attachSnapshots = async (res: RunResult, files: (File | undefined)[]) => {
+    snapAbort.current?.abort();
+    const controller = new AbortController();
+    snapAbort.current = controller;
+    const jobs: { sourceIndex: number; page: number }[] = [];
+    for (const section of res.outline ?? []) {
+      for (const v of section.visuals) {
+        if (v.page && files[section.sourceIndex] && !jobs.some((j) => j.sourceIndex === section.sourceIndex && j.page === v.page)) jobs.push({ sourceIndex: section.sourceIndex, page: v.page });
+      }
+    }
+    const list = jobs.slice(0, 40);
+    for (let i = 0; i < list.length; i += 1) {
+      if (controller.signal.aborted) return;
+      const job = list[i]!;
+      setSnapStatus(`Capturing tables & figures ${i + 1} of ${list.length}…`);
+      const shot = await renderPdfPage(files[job.sourceIndex]!, job.page);
+      if (controller.signal.aborted) return;
+      if (!shot) continue;
+      setResult((cur) => {
+        if (!cur?.outline) return cur;
+        return {
+          ...cur,
+          outline: cur.outline.map((sec) =>
+            sec.sourceIndex !== job.sourceIndex
+              ? sec
+              : { ...sec, visuals: sec.visuals.map((v, idx, arr) => (v.page === job.page && !v.image && !arr.slice(0, idx).some((x) => x.page === job.page) ? { ...v, image: shot.image, width: shot.width, height: shot.height } : v)) },
+          ),
+        };
+      });
+    }
+    if (!controller.signal.aborted) setSnapStatus("");
+  };
+
   const summarize = async () => {
     if (!active.length) return setError("Include at least one source first.");
     if (!engine.ready) {
@@ -152,10 +202,22 @@ function Home() {
       const visuals = active
         .flatMap((s) => s.findings.filter((f) => f.included).map((f) => ({ kind: f.kind, sourceName: s.name, excerpt: f.excerpt })))
         .slice(0, 25);
+      const prepared: PreparedSource[] = active.map((s) => {
+        const taken = new Set<string>();
+        const chapters = s.chapters?.filter((c) => c.included).map((c) => ({
+          id: c.id,
+          title: c.title,
+          text: stripExcluded(c.text, s.findings),
+          ...(c.startPage ? { pages: `p. ${c.startPage}${c.endPage && c.endPage !== c.startPage ? `–${c.endPage}` : ""}` } : {}),
+          visuals: chapterVisuals(s, c, taken, 5),
+        }));
+        return { id: s.id, name: s.name, text: sourceBodyText(s), ...(chapters?.length ? { chapters } : {}) };
+      });
       const res = await runSummary({
         engine: runEngine,
-        sources: active.map((s) => ({ id: s.id, name: s.name, text: textWithoutExcludedFindings(s) })),
+        sources: prepared,
         ratio: prefs.ratio,
+        byChapter: chapterMode,
         keptVisuals: visuals,
         signal: controller.signal,
         onProgress: (label, fraction) => {
@@ -164,6 +226,7 @@ function Home() {
         },
       });
       setResult(res);
+      if (res.outline && snapshots && active.some((x) => x.file)) void attachSnapshots(res, active.map((x) => x.file));
       window.setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     } catch (e) {
       const stopped = e instanceof ProviderError && e.kind === "aborted";
@@ -178,6 +241,8 @@ function Home() {
   const stop = () => abortRef.current?.abort();
   const clearSession = () => {
     abortRef.current?.abort();
+    snapAbort.current?.abort();
+    setSnapStatus("");
     setSources([]);
     setOverrides({});
     setResult(null);
@@ -232,6 +297,19 @@ function Home() {
             onClearAll={() => { clearAllKeys(); forgetAll(); }}
           />
 
+          <LengthCard
+            ratio={prefs.ratio}
+            onRatio={(ratio) => { setPrefs({ ratio }); invalidate(); }}
+            inputWords={inputWords}
+            targetWords={targetWords}
+            hasChapters={hasChapters}
+            byChapter={byChapter}
+            onByChapter={(value) => { setByChapter(value); invalidate(); }}
+            hasPdf={hasPdf}
+            snapshots={snapshots}
+            onSnapshots={(value) => { setSnapshots(value); invalidate(); }}
+          />
+
           {notice && (
             <p role="status" className="flex items-start gap-2 rounded-xl border-l-4 border-primary bg-secondary/60 px-3.5 py-3 text-sm">
               <Check className="mt-0.5 size-4 shrink-0 text-primary" /><span className="flex-1">{notice}</span>
@@ -270,9 +348,11 @@ function Home() {
                 onRemove={(id) => { setSources((c) => c.filter((s) => s.id !== id)); setOverrides(({ [id]: _drop, ...rest }) => rest); invalidate(); }}
                 onToggle={(id, value) => { setOverrides((o) => ({ ...o, [id]: value })); invalidate(); }}
                 onFinding={(sid, fid, value) => { setSources((c) => c.map((s) => (s.id === sid ? { ...s, findings: s.findings.map((f) => (f.id === fid ? { ...f, included: value } : f)) } : s))); invalidate(); }}
+                onChapter={(sid, cid, value) => patchSource(sid, (src) => ({ ...src, chapters: (src.chapters ?? []).map((c) => (c.id === cid ? { ...c, included: value } : c)) }))}
+                onAllChapters={(sid, value) => patchSource(sid, (src) => ({ ...src, chapters: (src.chapters ?? []).map((c) => ({ ...c, included: value })) }))}
                 onStop={stop}
               />
-              <div ref={resultRef} className="scroll-mt-4">{result && <OutputPanel result={result} rerunning={working} onRerun={() => void summarize()} />}</div>
+              <div ref={resultRef} className="scroll-mt-4">{result && <OutputPanel result={result} rerunning={working} status={snapStatus} onRerun={() => void summarize()} />}</div>
             </div>
             {sources.length > 0 && (
               <div className="lg:sticky lg:top-4">
@@ -280,10 +360,6 @@ function Home() {
                   sources={sources}
                   included={included}
                   topics={topics}
-                  ratio={prefs.ratio}
-                  inputWords={inputWords}
-                  targetWords={targetWords}
-                  onRatio={(ratio) => { setPrefs({ ratio }); invalidate(); }}
                   onFinding={(sid, fid, value) => { setSources((c) => c.map((s) => (s.id === sid ? { ...s, findings: s.findings.map((f) => (f.id === fid ? { ...f, included: value } : f)) } : s))); invalidate(); }}
                   onAllFindings={(value) => { setSources((c) => c.map((s) => ({ ...s, findings: s.findings.map((f) => ({ ...f, included: value })) }))); invalidate(); }}
                   onToggleSource={(id, value) => { setOverrides((o) => ({ ...o, [id]: value })); invalidate(); }}
@@ -304,7 +380,7 @@ function Home() {
               </>
             ) : active.length ? (
               <>
-                <p className="truncate font-medium">{active.length} source{active.length === 1 ? "" : "s"} · {inputWords.toLocaleString()} words → ~{targetWords.toLocaleString()}</p>
+                <p className="truncate font-medium">{active.length} source{active.length === 1 ? "" : "s"} · {inputWords.toLocaleString()} words → ~{targetWords.toLocaleString()} ({Math.round(prefs.ratio * 100)}%)</p>
                 <button type="button" onClick={() => setEngineOpen(true)} className={`truncate text-xs underline-offset-2 hover:underline ${engine.ready ? "text-muted-foreground" : "font-semibold text-accent"}`}>{engine.label} · {engine.detail}</button>
               </>
             ) : (
